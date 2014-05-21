@@ -1,0 +1,1 @@
+/* Module which implements paxos as a means of maintaining consistency among nodes */
