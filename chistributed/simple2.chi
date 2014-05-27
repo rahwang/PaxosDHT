@@ -1,0 +1,12 @@
+start test --peer-names test,test2,test3
+send {"destination": ["test"], "foo": "bar", "type": "foo"}
+get test foo
+start test2 --peer-names test,test2,test3
+start test3 --peer-names test,test2,test3
+get test2 foo
+set test2 foo 42
+send {"destination": ["test3"], "bar": "baz", "type": "foo"}
+send {"destination": ["test2"], "bar": "baz", "type": "foo"}
+get test2 foo
+get test3 foo
+get test foo
