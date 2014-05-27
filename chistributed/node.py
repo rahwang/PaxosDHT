@@ -27,15 +27,17 @@ class Node:
     self.req.on_recv(self.handle_broker_message)
 
     self.name = node_name
+    self.range = []
     self.spammer = spammer
     self.peer_names = peer_names
+    self.succ_names = succ_names
+    self.prev_names = prev_names
 
     #self.group = group
-    #if self.peer_names[0] == self.name:
-    #    self.leader = True
-    #else:
-    #    self.leader = False
-    #self.leader = False
+    if self.peer_names[0] == self.name:
+        self.leader = True
+    else:
+        self.leader = False
 
     self.store = {'foo': 'bar'}
 
@@ -64,17 +66,18 @@ class Node:
     if msg['type'] == 'get':
       # TODO: handle errors, esp. KeyError
       k = msg['key']
-      v = self.store[k]
       self.req.send_json({'type': 'log', 'debug': {'event': 'getting', 'node': self.name, 'key': k, 'value': v}})
-      self.req.send_json({'type': 'getResponse', 'id': msg['id'], 'value': v})
+      self.consistentGet(self, k)
+      #self.req.send_json({'type': 'getResponse', 'id': msg['id'], 'value': v})
     elif msg['type'] == 'set':
-      # TODO: Paxos
       k = msg['key']
       v = msg['value']
+        
       self.req.send_json({'type': 'log', 'debug': {'event': 'setting', 'node': self.name, 'key': k, 'value': v}})
-      self.store[k] = v
-      self.req.send_json({'type': 'setResponse', 'id': msg['id'], 'value': v})
-      self.req.send_json({'type': 'nodeset', 'key' : k, 'value' : v, 'destination': self.peer_names, 'id': msg['id']})
+      self.consistentSet(self, k, v)
+      #self.store[k] = v
+
+
     elif msg['type'] == 'nodeset':
         k = msg['key']
         v = msg['value']
@@ -90,6 +93,13 @@ class Node:
     self.sub_sock.close()
     self.req_sock.close()
     sys.exit(0)
+
+  def consistentSet(self, v, k):
+    self.req.send_json({'type': 'nodeset', 'key' : k, 'value' : v, 'destination': self.peer_names, 'id': msg['id']})    
+
+    self.store[k] = v
+    self.req.send_json({'type': 'setResponse', 'id': msg['id'], 'value': v})
+
 
 if __name__ == '__main__':
   import argparse
