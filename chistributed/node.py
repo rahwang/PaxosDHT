@@ -9,7 +9,7 @@ from zmq.eventloop import ioloop, zmqstream
 ioloop.install()
 
 class Node:
-  def __init__(self, node_name, pub_endpoint, router_endpoint, spammer, peer_names):#, group):
+  def __init__(self, node_name, pub_endpoint, router_endpoint, spammer, peer_names):#prev_names, succ_names, peer_names):
     self.loop = ioloop.ZMQIOLoop.current()
     self.context = zmq.Context()
     # SUB socket for receiving messages from the broker
@@ -30,8 +30,10 @@ class Node:
     self.range = []
     self.spammer = spammer
     self.peer_names = peer_names
-    self.succ_names = succ_names
-    self.prev_names = prev_names
+    #self.succ_names = succ_names
+    #self.prev_names = prev_names
+
+    self.registered = False
 
     #self.group = group
     if self.peer_names[0] == self.name:
@@ -84,7 +86,9 @@ class Node:
         self.store[k] = v
     elif msg['type'] == 'hello':
       # should be the very first message we see
-      self.req.send_json({'type': 'hello', 'source': self.name})
+      if not self.registered:
+        self.req.send_json({'type': 'hello', 'source': self.name})
+        self.registered = True
     else:
       self.req.send_json({'type': 'log', 'debug': {'event': 'unknown', 'node': self.name}})
 
@@ -119,11 +123,19 @@ if __name__ == '__main__':
   parser.add_argument('--peer-names',
       dest='peer_names', type=str,
       default='')
+  parser.add_argument('--succ-group',
+      dest='peer_names', type=str,
+      default='')
+  parser.add_argument('--prev-group',
+      dest='peer_names', type=str,
+      default='')
  # parser.add_argument('--group',
  #     dest='group', type=str,
  #     default='')
   args = parser.parse_args()
   args.peer_names = args.peer_names.split(',')
+  #args.prev_group = args.prev_group.split(',')
+  #args.succ_group = args.succ_group.split(',')
   #args.group = int(args.group)
-  Node(args.node_name, args.pub_endpoint, args.router_endpoint, args.spammer, args.peer_names).start()#, args.group).start()
+  Node(args.node_name, args.pub_endpoint, args.router_endpoint, args.spammer, args.peer_names).start()# args.prev_names, args.succ_names, args.peer_names).start()
 
