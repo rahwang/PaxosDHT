@@ -32,6 +32,7 @@ class Node:
     self.peer_names = peer_names
     #self.succ_names = succ_names
     #self.prev_names = prev_names
+    #self.set_acks_needed = []
 
     self.registered = False
 
@@ -69,17 +70,15 @@ class Node:
       # TODO: handle errors, esp. KeyError
       k = msg['key']
       self.req.send_json({'type': 'log', 'debug': {'event': 'getting', 'node': self.name, 'key': k, 'value': v}})
-      self.consistentGet(self, k)
-      #self.req.send_json({'type': 'getResponse', 'id': msg['id'], 'value': v})
+      if not self.forward(self, msg):
+        self.consistentGet(self, k, msg)
     elif msg['type'] == 'set':
       k = msg['key']
       v = msg['value']
         
       self.req.send_json({'type': 'log', 'debug': {'event': 'setting', 'node': self.name, 'key': k, 'value': v}})
-      self.consistentSet(self, k, v)
-      #self.store[k] = v
-
-
+      if not self.forward(self, msg):
+        self.consistentSet(self, k, v, msg)
     elif msg['type'] == 'nodeset':
         k = msg['key']
         v = msg['value']
@@ -98,12 +97,31 @@ class Node:
     self.req_sock.close()
     sys.exit(0)
 
-  def consistentSet(self, v, k):
-    self.req.send_json({'type': 'nodeset', 'key' : k, 'value' : v, 'destination': self.peer_names, 'id': msg['id']})    
+  # Forwards msg to correct nodes. Returns True is msg forwarded, False if no forwarding needed
+  def forward(self, msg):
+      if msg['key'] not in self.range:
+        for n in self.succ_names:
+          msg['destination'] = n
+          self.req.send_json(msg)
+        for n in self.prev_names:
+          msg['destination'] = n
+          self.req.send_json(msg)
+      elif not self.leader:
+        msg['destination'] = self.peer_names[0]
+        self.req.send_json(msg)
+      else:
+        return False
+     return True
 
+  def consistentSet(self, k, v, msg):
+    self.req.send_json({'type': 'nodeset', 'key' : k, 'value' : v, 'destination': self.peer_names, 'id': msg['id']})    
     self.store[k] = v
     self.req.send_json({'type': 'setResponse', 'id': msg['id'], 'value': v})
 
+  def consistentGet(self, k, msg):
+    #TODO PAXOS
+    v = self.store[k]
+    self.req.send_json({'type': 'getResponse', 'id': msg['id'], 'value': v})
 
 if __name__ == '__main__':
   import argparse
