@@ -130,7 +130,7 @@ class Node:
       self.req.send_json(msg) 
     elif not self.leader:
       print 'sending to recipient', msg['type']
-      msg['destination'] = self.peer_names[0]
+      msg['destination'] = [self.peer_names[0]]
       self.req.send_json(msg) 
     else:
       return False
