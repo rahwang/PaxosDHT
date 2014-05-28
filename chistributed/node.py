@@ -27,7 +27,10 @@ class Node:
     self.req.on_recv(self.handle_broker_message)
 
     self.name = node_name
-    self.range = []
+    if self.name == 'test2':
+        self.keyrange = ['foo']
+    else:
+        self.keyrange = []
     self.spammer = spammer
     self.peer_names = peer_names
     #self.succ_names = succ_names
@@ -70,15 +73,15 @@ class Node:
       # TODO: handle errors, esp. KeyError
       k = msg['key']
       self.req.send_json({'type': 'log', 'debug': {'event': 'getting', 'node': self.name, 'key': k, 'value': v}})
-      if not self.forward(self, msg):
-        self.consistentGet(self, k, msg)
+      if not self.forward(msg):
+        self.consistentGet(k, msg)
     elif msg['type'] == 'set':
       k = msg['key']
       v = msg['value']
         
       self.req.send_json({'type': 'log', 'debug': {'event': 'setting', 'node': self.name, 'key': k, 'value': v}})
-      if not self.forward(self, msg):
-        self.consistentSet(self, k, v, msg)
+      if not self.forward(msg):
+        self.consistentSet(k, v, msg)
     elif msg['type'] == 'nodeset':
         k = msg['key']
         v = msg['value']
@@ -99,7 +102,7 @@ class Node:
 
   # Forwards msg to correct nodes. Returns True is msg forwarded, False if no forwarding needed
   def forward(self, msg):
-      if msg['key'] not in self.range:
+      if msg['key'] not in self.keyrange:
         for n in self.succ_names:
           msg['destination'] = n
           self.req.send_json(msg)
@@ -111,7 +114,7 @@ class Node:
         self.req.send_json(msg)
       else:
         return False
-     return True
+      return True
 
   def consistentSet(self, k, v, msg):
     self.req.send_json({'type': 'nodeset', 'key' : k, 'value' : v, 'destination': self.peer_names, 'id': msg['id']})    
