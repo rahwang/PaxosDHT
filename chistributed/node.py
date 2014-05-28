@@ -107,6 +107,8 @@ class Node:
 
   # Forwards msg to correct nodes. Returns True is msg forwarded, False if no forwarding needed
   def forward(self, msg):
+    if 'origin' not in msg.keys():
+      msg['origin'] = self.name
     if msg['key'] not in self.keyrange:
       self.req.send_json({'type': msg['type'], 
                           'key': msg['key'], 
@@ -133,21 +135,21 @@ class Node:
 
   def reply(self, msg):
     if msg['origin'] != self.name:
-      if msg['type'] = 'set':
+      if msg['type'] == 'set':
         self.req.send_json({'type': 'setReply', 
                             'id': msg['id'], 
-                            'value': msg['value'}, 
-                            'origin': msg['origin'])
+                            'value': msg['value'], 
+                            'origin': msg['origin']})
       else:
         self.req.send_json({'type': 'getReply', 
                             'id': msg['id'], 
                             'value': msg['value'],
                             'origin': msg['origin']})
     else:
-      if msg['type'] = 'setReply':
+      if msg['type'] == 'setReply':
         self.req.send_json({'type': 'setResponse', 
                             'id': msg['id'], 
-                            'value': msg['value'})
+                            'value': msg['value']})
       else:
         self.req.send_json({'type': 'getResponse', 
                             'id': msg['id'], 
@@ -156,12 +158,12 @@ class Node:
   def consistentSet(self, k, v, msg):
     self.req.send_json({'type': 'nodeset', 'key' : k, 'value' : v, 'destination': self.peer_names, 'id': msg['id']})    
     self.store[k] = v
-    self.req.send_json({'type': 'setResponse', 'id': msg['id'], 'value': v})
+    self.reply(msg)
 
   def consistentGet(self, k, msg):
     #TODO PAXOS
     v = self.store[k]
-    self.req.send_json({'type': 'getResponse', 'id': msg['id'], 'value': v})
+    self.reply(msg)
 
 if __name__ == '__main__':
   import argparse
