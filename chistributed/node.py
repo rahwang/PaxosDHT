@@ -104,14 +104,11 @@ class Node:
   def forward(self, msg):
       if msg['key'] not in self.keyrange:
         for n in self.succ_names:
-          msg['destination'] = n
-          self.req.send_json(msg)
+          self.req.send_json({'type': msg['type'], 'key': msg['key'], 'value': msg['value'], 'destination': n, 'id': msg['id'])
         for n in self.prev_names:
-          msg['destination'] = n
-          self.req.send_json(msg)
+          self.req.send_json({'type': msg['type'], 'key': msg['key'], 'value': msg['value'], 'destination': n, 'id': msg['id'])
       elif not self.leader:
-        msg['destination'] = self.peer_names[0]
-        self.req.send_json(msg)
+          self.req.send_json({'type': msg['type'], 'key': msg['key'], 'value': msg['value'], 'destination': self.peer_names[0], 'id': msg['id'])
       else:
         return False
       return True
