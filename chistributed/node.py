@@ -124,54 +124,34 @@ class Node:
 
   # Forwards msg to correct nodes. Returns True is msg forwarded, False if no forwarding needed
   def forward(self, msg):
-    if 'value' not in msg.keys():
-        msg['value'] = 'dummy'
     print 'forwarding', msg['type'], 'leader', self.leader, 'key', msg['key'], self.keyrange
     if msg['key'] not in self.keyrange:
-      self.req.send_json({'type': msg['type'], 
-                          'key': msg['key'], 
-                          'value': msg['value'], 
-                          #'destination': self.succ_names,
-                          'destination': [self.peer_names[0]], 
-                          'id': msg['id'], 
-                          'origin': msg['origin']})
+      msg['destination'] = self.peer_names
+      self.req.send_json(msg) 
     elif not self.leader:
       print 'sending to recipient', msg['type']
-      self.req.send_json({'type': msg['type'], 
-                          'key': msg['key'], 
-                          'value': msg['value'], 
-                          'destination': [self.peer_names[0]], 
-                          'id': msg['id'], 
-                          'origin': msg['origin']})
+      msg['destination'] = self.peer_names[0]
+      self.req.send_json(msg) 
     else:
       return False
     return True
 
   def reply(self, msg):
     print 'origin:', msg['type'], msg['origin'], self.name
-    if msg['type'] in ['setReply', 'set']:
-      mType = 'set'
-    else:
-      mType = 'get'      
     if msg['origin'] != self.name:
       if msg['origin'] in self.peer_names:
-        dst = msg['origin']
+        msg['destination'] = [msg['origin']]
       else:
         # Else change to next_names
-        dst = self.peer_names
-      print 'setReply'
-      self.req.send_json({'type': mType + 'Reply', 
-                          'id': msg['id'], 
-                          'value': msg['value'],
-                          'destination': [dst], 
-                          'origin': msg['origin']})
+        msg['destination'] = self.peer_names
+      msg['type'] = msg['type'][:3] + 'Reply'
+      self.req.send_json(msg)
     else:
       print 'id', msg['id'], self.sent_id
       if self.sent_id >= int(msg['id']):
         return
-      self.req.send_json({'type': mType + 'Response', 
-                          'id': msg['id'], 
-                          'value': msg['value']})
+      msg['type'] = msg['type'][:3] + 'Response'
+      self.req.send_json(msg)
       
   def consistentSet(self, k, v, msg):
     self.req.send_json({'type': 'nodeset', 'key' : k, 'value' : v, 'destination': self.peer_names, 'id': msg['id']})    
