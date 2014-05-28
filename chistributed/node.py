@@ -73,14 +73,25 @@ class Node:
       # TODO: handle errors, esp. KeyError
       k = msg['key']
       v = self.store['key']
-      self.req.send_json({'type': 'log', 'debug': {'event': 'getting', 'node': self.name, 'key': k, 'value': v}})
+      self.req.send_json({'type': 'log', 
+                          'debug': {'event': 'getting', 
+                                    'node': self.name, 
+                                    'key': k, 'value': v}})
+      if 'origin' not in msg.keys():
+        msg['origin'] = self.name
       if not self.forward(msg):
         self.consistentGet(k, msg)
     elif msg['type'] == 'set':
       k = msg['key']
       v = msg['value']
         
-      self.req.send_json({'type': 'log', 'debug': {'event': 'setting', 'node': self.name, 'key': k, 'value': v}})
+      self.req.send_json({'type': 'log', 
+                          'debug': {'event': 'setting', 
+                                    'node': self.name, 
+                                    'key': k, 
+                                    'value': v}})
+      if 'origin' not in msg.keys():
+        msg['origin'] = self.name
       if not self.forward(msg):
         self.consistentSet(k, v, msg)
     elif msg['type'] == 'nodeset':
@@ -97,7 +108,9 @@ class Node:
     elif msg['type'] == 'setReply':
       self.reply(msg)
     else:
-      self.req.send_json({'type': 'log', 'debug': {'event': 'unknown', 'node': self.name}})
+      self.req.send_json({'type': 'log', 
+                          'debug': {'event': 'unknown', 
+                                    'node': self.name}})
 
   def shutdown(self, sig, frame):
     self.loop.stop()
@@ -107,8 +120,6 @@ class Node:
 
   # Forwards msg to correct nodes. Returns True is msg forwarded, False if no forwarding needed
   def forward(self, msg):
-    if 'origin' not in msg.keys():
-      msg['origin'] = self.name
     if msg['key'] not in self.keyrange:
       self.req.send_json({'type': msg['type'], 
                           'key': msg['key'], 
