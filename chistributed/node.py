@@ -72,6 +72,7 @@ class Node:
     if msg['type'] == 'get':
       # TODO: handle errors, esp. KeyError
       k = msg['key']
+      v = self.store['key']
       self.req.send_json({'type': 'log', 'debug': {'event': 'getting', 'node': self.name, 'key': k, 'value': v}})
       if not self.forward(msg):
         self.consistentGet(k, msg)
@@ -91,6 +92,10 @@ class Node:
       if not self.registered:
         self.req.send_json({'type': 'hello', 'source': self.name})
         self.registered = True
+    elif msg['type'] == 'getReply':
+      self.reply(msg)
+    elif msg['type'] == 'setReply':
+      self.reply(msg)
     else:
       self.req.send_json({'type': 'log', 'debug': {'event': 'unknown', 'node': self.name}})
 
@@ -102,16 +107,51 @@ class Node:
 
   # Forwards msg to correct nodes. Returns True is msg forwarded, False if no forwarding needed
   def forward(self, msg):
-      if msg['key'] not in self.keyrange:
-        for n in self.succ_names:
-          self.req.send_json({'type': msg['type'], 'key': msg['key'], 'value': msg['value'], 'destination': n, 'id': msg['id'])
-        for n in self.prev_names:
-          self.req.send_json({'type': msg['type'], 'key': msg['key'], 'value': msg['value'], 'destination': n, 'id': msg['id'])
-      elif not self.leader:
-          self.req.send_json({'type': msg['type'], 'key': msg['key'], 'value': msg['value'], 'destination': self.peer_names[0], 'id': msg['id'])
+    if msg['key'] not in self.keyrange:
+      self.req.send_json({'type': msg['type'], 
+                          'key': msg['key'], 
+                          'value': msg['value'], 
+                          'destination': self.succ_names, 
+                          'id': msg['id'], 
+                          'origin': msg['origin']})
+      self.req.send_json({'type': msg['type'], 
+                          'key': msg['key'], 
+                          'value': msg['value'], 
+                          'destination': self.prev_names, 
+                          'id': msg['id'], 
+                          'origin': msg['origin']})
+    elif not self.leader:
+      self.req.send_json({'type': msg['type'], 
+                          'key': msg['key'], 
+                          'value': msg['value'], 
+                          'destination': self.peer_names[0], 
+                          'id': msg['id'], 
+                          'origin': msg['origin']})
+    else:
+      return False
+    return True
+
+  def reply(self, msg):
+    if msg['origin'] != self.name:
+      if msg['type'] = 'set':
+        self.req.send_json({'type': 'setReply', 
+                            'id': msg['id'], 
+                            'value': msg['value'}, 
+                            'origin': msg['origin'])
       else:
-        return False
-      return True
+        self.req.send_json({'type': 'getReply', 
+                            'id': msg['id'], 
+                            'value': msg['value'],
+                            'origin': msg['origin']})
+    else:
+      if msg['type'] = 'setReply':
+        self.req.send_json({'type': 'setResponse', 
+                            'id': msg['id'], 
+                            'value': msg['value'})
+      else:
+        self.req.send_json({'type': 'getResponse', 
+                            'id': msg['id'], 
+                            'value': msg['value']})
 
   def consistentSet(self, k, v, msg):
     self.req.send_json({'type': 'nodeset', 'key' : k, 'value' : v, 'destination': self.peer_names, 'id': msg['id']})    
