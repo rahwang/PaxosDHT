@@ -151,38 +151,29 @@ class Node:
     return True
 
   def reply(self, msg):
-    if msg['origin'] != self.name:
-      if msg['type'] == 'set':
-        self.req.send_json({'type': 'setReply', 
-                            'id': msg['id'],
-                            # 'destination': self.prev_names
-                            'destination': self.peer_names, 
-                            'value': msg['value'], 
-                            'origin': msg['origin']})
-      else:
-        self.req.send_json({'type': 'getReply', 
-                            'id': msg['id'], 
-                            'value': msg['value'],
-                            'destination': self.peer_names, 
-                            # 'destination': self.succ_names, 
-                            'origin': msg['origin']})
+    if msg['type'] in ['setReply', 'set']:
+      mType = 'set'
     else:
-      if msg['type'] == 'setReply':
-        print 'id', msg['id'], self.sent_id
-        if self.sent_id >= int(msg['id']):
-            return
-        self.req.send_json({'type': 'setResponse', 
-                            'id': msg['id'], 
-                            'value': msg['value']})
-        self.sent_id = msg['id']
+      mType = 'get'      
+    if msg['origin'] != self.name:
+      if msg['origin'] in self.peer_names:
+        dst = msg['origin']
       else:
-        print 'id', msg['id'], self.sent_id
-        if self.sent_id >= int(msg['id']):
-            return
-        self.req.send_json({'type': 'getResponse', 
-                            'id': msg['id'], 
-                            'value': msg['value']})
-
+        # Else change to next_names
+        dst = self.peer_names
+      self.req.send_json({'type': mType + 'Reply', 
+                          'id': msg['id'], 
+                          'value': msg['value'],
+                          'destination': dst, 
+                          'origin': msg['origin']})
+    else:
+      print 'id', msg['id'], self.sent_id
+      if self.sent_id >= int(msg['id']):
+        return
+      self.req.send_json({'type': mType + 'Response', 
+                          'id': msg['id'], 
+                          'value': msg['value']})
+      
   def consistentSet(self, k, v, msg):
     self.req.send_json({'type': 'nodeset', 'key' : k, 'value' : v, 'destination': self.peer_names, 'id': msg['id']})    
     self.store[k] = v
