@@ -70,11 +70,12 @@ class Node:
     assert msg_frames[0] == self.name
     # Second field is the empty delimiter
     msg = json.loads(msg_frames[2])
-    print msg['type'], self.name
+    if msg['type'] != 'hello':
+        print msg['type'], self.name
     if msg['type'] == 'get':
       # TODO: handle errors, esp. KeyError
       k = msg['key']
-      v = self.store['key']
+      v = self.store[k]
       self.req.send_json({'type': 'log', 
                           'debug': {'event': 'getting', 
                                     'node': self.name, 
@@ -123,34 +124,31 @@ class Node:
 
   # Forwards msg to correct nodes. Returns True is msg forwarded, False if no forwarding needed
   def forward(self, msg):
+    if 'value' not in msg.keys():
+        msg['value'] = 'dummy'
+    print 'forwarding', msg['type'], 'leader', self.leader, 'key', msg['key'], self.keyrange
     if msg['key'] not in self.keyrange:
       self.req.send_json({'type': msg['type'], 
                           'key': msg['key'], 
                           'value': msg['value'], 
                           #'destination': self.succ_names,
-                          'destination': self.peer_names, 
-                          'id': msg['id'], 
-                          'origin': msg['origin']})
-      self.req.send_json({'type': msg['type'], 
-                          'key': msg['key'], 
-                          'value': msg['value'], 
-                          'destination': self.peer_names,
-                          #'destination': self.prev_names, 
+                          'destination': [self.peer_names[0]], 
                           'id': msg['id'], 
                           'origin': msg['origin']})
     elif not self.leader:
+      print 'sending to recipient', msg['type']
       self.req.send_json({'type': msg['type'], 
                           'key': msg['key'], 
                           'value': msg['value'], 
                           'destination': [self.peer_names[0]], 
                           'id': msg['id'], 
                           'origin': msg['origin']})
-      print 'sending to recipient'
     else:
       return False
     return True
 
   def reply(self, msg):
+    print 'origin:', msg['type'], msg['origin'], self.name
     if msg['type'] in ['setReply', 'set']:
       mType = 'set'
     else:
@@ -161,10 +159,11 @@ class Node:
       else:
         # Else change to next_names
         dst = self.peer_names
+      print 'setReply'
       self.req.send_json({'type': mType + 'Reply', 
                           'id': msg['id'], 
                           'value': msg['value'],
-                          'destination': dst, 
+                          'destination': [dst], 
                           'origin': msg['origin']})
     else:
       print 'id', msg['id'], self.sent_id
@@ -182,6 +181,7 @@ class Node:
   def consistentGet(self, k, msg):
     #TODO PAXOS
     v = self.store[k]
+    msg['value'] = v
     self.reply(msg)
 
 if __name__ == '__main__':
