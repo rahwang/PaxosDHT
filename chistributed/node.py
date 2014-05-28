@@ -28,8 +28,8 @@ class Node:
     self.req.on_recv(self.handle_broker_message)
 
     self.name = node_name
-    if self.name == 'test2':
-        self.keyrange = ['foo']
+    if self.name == 'test3':
+        self.keyrange = []
     else:
         self.keyrange = ['foo']
     self.spammer = spammer
@@ -40,6 +40,7 @@ class Node:
     #self.set_acks_needed = []
 
     self.registered = False
+    self.waiting = False
 
     #self.group = group
     if self.peer_names[0] == self.name:
@@ -83,8 +84,12 @@ class Node:
                                     'value': v}})
       if 'origin' not in msg.keys():
         msg['origin'] = self.name
+        self.waiting = True
       if not self.forward(msg):
         self.consistentGet(k, msg)
+      if msg['origin'] == self.name:
+        time.sleep(0.5)
+        self.req.send_json({'type': 'time_elapsed', 'orig_type': msg['type'], 'key': msg['key'], 'destination': [self.name], 'id': msg['id']})
     elif msg['type'] == 'set':
       k = msg['key']
       v = msg['value']
@@ -102,6 +107,18 @@ class Node:
         k = msg['key']
         v = msg['value']
         self.store[k] = v
+    elif msg['type'] == 'time_elapsed':
+        if not self.waiting:
+            return
+        if msg['orig_type'] == 'get':
+            if self.sent_id >= int(msg['id']):
+                return
+            if msg['key'] not in self.keyrange:
+                self.req.send_json({'type': 'getResponse', 'key': msg['key'], 'id':msg['id'], 'error': 'Key not accessible'})
+            else:
+                self.req.send_json({'type': 'getResponse', 'key': msg['key'], 'id':msg['id'], 'value': self.store[msg['key']]})
+            self.sent_id = int(msg['id'])
+            self.waiting = False
     elif msg['type'] == 'hello':
       # should be the very first message we see
       if not self.registered:
@@ -132,6 +149,10 @@ class Node:
       print 'sending to recipient', msg['type']
       msg['destination'] = [self.peer_names[0]]
       self.req.send_json(msg) 
+      #self.waiting = True
+      #time.sleep(0.2)
+      #self.req.send_json({'type': 'time_elapsed', 'orig_type': msg['type'], 'key': msg['key'], 'destination': [self.name], 'id': msg['id']})
+      #print 'sleeping'
     else:
       return False
     return True
@@ -151,7 +172,9 @@ class Node:
       if self.sent_id >= int(msg['id']):
         return
       msg['type'] = msg['type'][:3] + 'Response'
+      self.sent_id = int(msg['id'])
       self.req.send_json(msg)
+      self.waiting = False
       
   def consistentSet(self, k, v, msg):
     self.req.send_json({'type': 'nodeset', 'key' : k, 'value' : v, 'destination': self.peer_names, 'id': msg['id']})    
