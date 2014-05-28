@@ -76,7 +76,8 @@ class Node:
       self.req.send_json({'type': 'log', 
                           'debug': {'event': 'getting', 
                                     'node': self.name, 
-                                    'key': k, 'value': v}})
+                                    'key': k, 
+                                    'value': v}})
       if 'origin' not in msg.keys():
         msg['origin'] = self.name
       if not self.forward(msg):
@@ -124,13 +125,15 @@ class Node:
       self.req.send_json({'type': msg['type'], 
                           'key': msg['key'], 
                           'value': msg['value'], 
-                          'destination': self.succ_names, 
+                          #'destination': self.succ_names,
+                          'destination': self.peer_names, 
                           'id': msg['id'], 
                           'origin': msg['origin']})
       self.req.send_json({'type': msg['type'], 
                           'key': msg['key'], 
                           'value': msg['value'], 
-                          'destination': self.prev_names, 
+                          'destination': self.peer_names,
+                          #'destination': self.prev_names, 
                           'id': msg['id'], 
                           'origin': msg['origin']})
     elif not self.leader:
@@ -148,13 +151,17 @@ class Node:
     if msg['origin'] != self.name:
       if msg['type'] == 'set':
         self.req.send_json({'type': 'setReply', 
-                            'id': msg['id'], 
+                            'id': msg['id'],
+                            # 'destination': self.prev_names
+                            'destination': self.peer_names, 
                             'value': msg['value'], 
                             'origin': msg['origin']})
       else:
         self.req.send_json({'type': 'getReply', 
                             'id': msg['id'], 
                             'value': msg['value'],
+                            'destination': self.peer_names, 
+                            # 'destination': self.succ_names, 
                             'origin': msg['origin']})
     else:
       if msg['type'] == 'setReply':
