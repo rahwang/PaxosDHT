@@ -10,6 +10,7 @@ ioloop.install()
 
 class Node:
   def __init__(self, node_name, pub_endpoint, router_endpoint, spammer, peer_names):#prev_names, succ_names, peer_names):
+    sys.stdout = open('logging', 'a') 
     self.loop = ioloop.ZMQIOLoop.current()
     self.context = zmq.Context()
     # SUB socket for receiving messages from the broker
@@ -30,9 +31,10 @@ class Node:
     if self.name == 'test2':
         self.keyrange = ['foo']
     else:
-        self.keyrange = []
+        self.keyrange = ['foo']
     self.spammer = spammer
     self.peer_names = peer_names
+    self.sent_id = 0
     #self.succ_names = succ_names
     #self.prev_names = prev_names
     #self.set_acks_needed = []
@@ -68,7 +70,7 @@ class Node:
     assert msg_frames[0] == self.name
     # Second field is the empty delimiter
     msg = json.loads(msg_frames[2])
-
+    print msg['type'], self.name
     if msg['type'] == 'get':
       # TODO: handle errors, esp. KeyError
       k = msg['key']
@@ -140,9 +142,10 @@ class Node:
       self.req.send_json({'type': msg['type'], 
                           'key': msg['key'], 
                           'value': msg['value'], 
-                          'destination': self.peer_names[0], 
+                          'destination': [self.peer_names[0]], 
                           'id': msg['id'], 
                           'origin': msg['origin']})
+      print 'sending to recipient'
     else:
       return False
     return True
@@ -165,10 +168,17 @@ class Node:
                             'origin': msg['origin']})
     else:
       if msg['type'] == 'setReply':
+        print 'id', msg['id'], self.sent_id
+        if self.sent_id >= int(msg['id']):
+            return
         self.req.send_json({'type': 'setResponse', 
                             'id': msg['id'], 
                             'value': msg['value']})
+        self.sent_id = msg['id']
       else:
+        print 'id', msg['id'], self.sent_id
+        if self.sent_id >= int(msg['id']):
+            return
         self.req.send_json({'type': 'getResponse', 
                             'id': msg['id'], 
                             'value': msg['value']})
