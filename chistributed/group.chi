@@ -1,0 +1,12 @@
+start test1 --peer-names test1,test2 --succ-group test3,test4 --prev-group test5,test6
+start test2 --peer-names test1,test2 --succ-group test3,test4 --prev-group test5,test6
+start test3 --peer-names test3,test4 --succ-group test5,test6 --prev-group test1,test2
+start test4 --peer-names test3,test4 --succ-group test5,test6 --prev-group test1,test2
+start test5 --peer-names test5,test6 --succ-group test1,test2 --prev-group test3,test4
+start test6 --peer-names test5,test6 --succ-group test1,test2 --prev-group test3,test4
+set test3 bar 30
+set test1 foo 42
+get test2 foo
+set test3 bar 30
+get test4 bar
+get test2 bar

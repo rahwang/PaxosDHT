@@ -9,7 +9,7 @@ from zmq.eventloop import ioloop, zmqstream
 ioloop.install()
 
 class Node:
-  def __init__(self, node_name, pub_endpoint, router_endpoint, spammer, peer_names):#prev_names, succ_names, peer_names):
+  def __init__(self, node_name, pub_endpoint, router_endpoint, spammer, peer_names, prev_group, succ_group):
     sys.stdout = open('logging', 'a') 
     self.loop = ioloop.ZMQIOLoop.current()
     self.context = zmq.Context()
@@ -28,15 +28,17 @@ class Node:
     self.req.on_recv(self.handle_broker_message)
 
     self.name = node_name
-    if self.name == 'test3':
-        self.keyrange = []
-    else:
+    if self.name in ['test1','test2']:
         self.keyrange = ['foo']
+    if self.name in ['test3','test4']:
+        self.keyrange = ['bar']
+    if self.name in ['test5','test6']:
+        self.keyrange = ['baz']
     self.spammer = spammer
     self.peer_names = peer_names
     self.sent_id = 0
-    #self.succ_names = succ_names
-    #self.prev_names = prev_names
+    self.succ_group = succ_group
+    self.prev_group = prev_group
     #self.set_acks_needed = []
 
     self.registered = False
@@ -47,6 +49,12 @@ class Node:
         self.leader = True
     else:
         self.leader = False
+    if len(self.succ_group) > 0 and len(self.prev_group) > 0:
+        self.prev_leader = self.prev_group[0]
+        self.succ_leader = self.succ_group[0]
+        self.forward_nodes = [self.succ_leader, self.prev_leader]
+    else:
+        self.forward_nodes = self.peer_names
 
     self.store = {'foo': 'bar'}
 
@@ -106,7 +114,8 @@ class Node:
     elif msg['type'] == 'nodeset':
         k = msg['key']
         v = msg['value']
-        self.store[k] = v
+        if k in self.keyrange:
+            self.store[k] = v
     elif msg['type'] == 'time_elapsed':
         if not self.waiting:
             return
@@ -143,7 +152,7 @@ class Node:
   def forward(self, msg):
     print 'forwarding', msg['type'], 'leader', self.leader, 'key', msg['key'], self.keyrange
     if msg['key'] not in self.keyrange:
-      msg['destination'] = self.peer_names
+      msg['destination'] = self.forward_nodes #[self.succ_leader, self.prev_leader] #self.peer_names
       self.req.send_json(msg) 
     elif not self.leader:
       print 'sending to recipient', msg['type']
@@ -206,18 +215,18 @@ if __name__ == '__main__':
       dest='peer_names', type=str,
       default='')
   parser.add_argument('--succ-group',
-      dest='peer_names', type=str,
+      dest='succ_group', type=str,
       default='')
   parser.add_argument('--prev-group',
-      dest='peer_names', type=str,
+      dest='prev_group', type=str,
       default='')
  # parser.add_argument('--group',
  #     dest='group', type=str,
  #     default='')
   args = parser.parse_args()
   args.peer_names = args.peer_names.split(',')
-  #args.prev_group = args.prev_group.split(',')
-  #args.succ_group = args.succ_group.split(',')
+  args.prev_group = args.prev_group.split(',')
+  args.succ_group = args.succ_group.split(',')
   #args.group = int(args.group)
-  Node(args.node_name, args.pub_endpoint, args.router_endpoint, args.spammer, args.peer_names).start()# args.prev_names, args.succ_names, args.peer_names).start()
+  Node(args.node_name, args.pub_endpoint, args.router_endpoint, args.spammer, args.peer_names, args.prev_group, args.succ_group).start()
 
