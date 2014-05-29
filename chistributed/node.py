@@ -74,11 +74,26 @@ class Node:
     '''
     pass
 
+  # If node is the origin, wait for correct get/set info to be forwarded.
+  # In case of timeout, send an error response
+  def collectReply(self, msg):
+    if msg['origin'] == self.name:
+      timeout = time.time() + 0.5
+      while True:
+        ioloop.ZMQIOLoop.current()#self.loop.start()
+        if time.time() > timeout:
+          break
+      if not self.waiting:
+        return
+      else:
+        self.req.send_json({'type': msg['type'][:3] + Response, 'key' : msg['key'], 'id': msg['id'], 'error': 'Key not accessible'})    
+
   def handle(self, msg_frames):
     assert len(msg_frames) == 3
     assert msg_frames[0] == self.name
     # Second field is the empty delimiter
     msg = json.loads(msg_frames[2])
+
     if msg['type'] != 'hello':
         print msg['type'], self.name
     if msg['type'] == 'get':
@@ -95,16 +110,7 @@ class Node:
         self.waiting = True
       if not self.forward(msg):
         self.consistentGet(k, msg)
-      if msg['origin'] == self.name:
-        timeout = time.time() + 0.5
-        while True:
-            ioloop.ZMQIOLoop.current()#self.loop.start()
-            if time.time() > timeout:
-                break
-        if not self.waiting:
-            return
-        #time.sleep(0.5)
-        self.req.send_json({'type': 'time_elapsed', 'orig_type': msg['type'], 'key': msg['key'], 'destination': [self.name], 'id': msg['id']})
+      self.collectReply(msg)
     elif msg['type'] == 'set':
       k = msg['key']
       v = msg['value']
@@ -118,23 +124,12 @@ class Node:
         msg['origin'] = self.name
       if not self.forward(msg):
         self.consistentSet(k, v, msg)
+      self.collectReply(msg)
     elif msg['type'] == 'nodeset':
         k = msg['key']
         v = msg['value']
         if k in self.keyrange:
             self.store[k] = v
-    elif msg['type'] == 'time_elapsed':
-        if not self.waiting:
-            return
-        if msg['orig_type'] == 'get':
-            if self.sent_id >= int(msg['id']):
-                return
-            if msg['key'] not in self.keyrange:
-                self.req.send_json({'type': 'getResponse', 'key': msg['key'], 'id':msg['id'], 'error': 'Key not accessible'})
-            else:
-                self.req.send_json({'type': 'getResponse', 'key': msg['key'], 'id':msg['id'], 'value': self.store[msg['key']]})
-            self.sent_id = int(msg['id'])
-            self.waiting = False
     elif msg['type'] == 'hello':
       # should be the very first message we see
       if not self.registered:
@@ -165,10 +160,6 @@ class Node:
       print 'sending to recipient', msg['type']
       msg['destination'] = [self.peer_names[0]]
       self.req.send_json(msg) 
-      #self.waiting = True
-      #time.sleep(0.2)
-      #self.req.send_json({'type': 'time_elapsed', 'orig_type': msg['type'], 'key': msg['key'], 'destination': [self.name], 'id': msg['id']})
-      #print 'sleeping'
     else:
       return False
     return True
