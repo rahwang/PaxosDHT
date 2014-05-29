@@ -96,7 +96,14 @@ class Node:
       if not self.forward(msg):
         self.consistentGet(k, msg)
       if msg['origin'] == self.name:
-        time.sleep(0.5)
+        timeout = time.time() + 0.5
+        while True:
+            ioloop.ZMQIOLoop.current()#self.loop.start()
+            if time.time() > timeout:
+                break
+        if not self.waiting:
+            return
+        #time.sleep(0.5)
         self.req.send_json({'type': 'time_elapsed', 'orig_type': msg['type'], 'key': msg['key'], 'destination': [self.name], 'id': msg['id']})
     elif msg['type'] == 'set':
       k = msg['key']
