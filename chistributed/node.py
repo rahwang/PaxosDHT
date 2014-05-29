@@ -39,7 +39,8 @@ class Node:
     self.sent_id = 0
     self.succ_group = succ_group
     self.prev_group = prev_group
-    #self.set_acks_needed = []
+    self.ackedNodes = []
+    self.dead = []
 
     self.registered = False
     self.waiting = False
@@ -74,19 +75,31 @@ class Node:
     '''
     pass
 
+  # Wait for messages
+  # Return True if message received, False if timeout
+  def receive(self):
+    timeout = time.time() + 0.5
+    while True:
+      ioloop.ZMQIOLoop.current()#self.loop.start()
+      if time.time() > timeout:
+        break
+    if not self.waiting:
+      return True
+    return False
+    
   # If node is the origin, wait for correct get/set info to be forwarded.
-  # In case of timeout, send an error response
+  # In case of timeout, send an error response for get
   def collectReply(self, msg):
     if msg['origin'] == self.name:
-      timeout = time.time() + 0.5
-      while True:
-        ioloop.ZMQIOLoop.current()#self.loop.start()
-        if time.time() > timeout:
-          break
-      if not self.waiting:
-        return
-      else:
-        self.req.send_json({'type': msg['type'][:3] + Response, 'key' : msg['key'], 'id': msg['id'], 'error': 'Key not accessible'})    
+      if not self.receive():
+        self.req.send_json({'type': msg['type'] + 'Response', 'key': msg['key'], 'id': msg['id'], 'error': 'Key not accessible'})    
+
+  def collectAcks(self, msg):
+    self.receive()
+    for n in self.peer_names:
+      if n not in self.ackedNodes:
+        self.dead.append(n)
+    self.ackedNodes = []
 
   def handle(self, msg_frames):
     assert len(msg_frames) == 3
@@ -113,8 +126,7 @@ class Node:
       self.collectReply(msg)
     elif msg['type'] == 'set':
       k = msg['key']
-      v = msg['value']
-        
+      v = msg['value']        
       self.req.send_json({'type': 'log', 
                           'debug': {'event': 'setting', 
                                     'node': self.name, 
@@ -126,10 +138,16 @@ class Node:
         self.consistentSet(k, v, msg)
       self.collectReply(msg)
     elif msg['type'] == 'nodeset':
-        k = msg['key']
-        v = msg['value']
-        if k in self.keyrange:
-            self.store[k] = v
+      k = msg['key']
+      v = msg['value']
+      if k in self.keyrange:
+        self.store[k] = v
+        msg['destination'] = [self.peer_names[0]]
+        msg['sender'] = self.name
+        msg['type'] = ['nodesetAck']
+        self.req.send_json(msg)
+    elif msg['type'] == 'nodesetAck':
+      self.ackedNodes.append(msg['sender'])
     elif msg['type'] == 'hello':
       # should be the very first message we see
       if not self.registered:
@@ -185,7 +203,7 @@ class Node:
       
   def consistentSet(self, k, v, msg):
     self.req.send_json({'type': 'nodeset', 'key' : k, 'value' : v, 'destination': self.peer_names, 'id': msg['id']})    
-    self.store[k] = v
+    self.collectAcks()
     self.reply(msg)
 
   def consistentGet(self, k, msg):
