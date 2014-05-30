@@ -7,6 +7,6 @@ start test6 --peer-names test5,test6 --succ-group test1,test2 --prev-group test3
 set test3 bar 30
 set test1 foo 42
 get test2 foo
-set test3 bar 30
+set test3 bar 35
 get test4 bar
 get test2 bar

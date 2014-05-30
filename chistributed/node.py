@@ -50,12 +50,13 @@ class Node:
         self.leader = True
     else:
         self.leader = False
-    if len(self.succ_group) > 0 and len(self.prev_group) > 0:
+    if len(self.succ_group) > 1 and len(self.prev_group) > 1:
         self.prev_leader = self.prev_group[0]
         self.succ_leader = self.succ_group[0]
-        self.forward_nodes = [self.succ_leader, self.prev_leader]
+        self.forward_nodes = [self.succ_leader]
     else:
-        self.forward_nodes = self.peer_names
+        self.forward_nodes = self.peer_names[:]
+        self.forward_nodes.remove(self.name)
 
     self.store = {'foo': 'bar'}
 
@@ -74,32 +75,30 @@ class Node:
     Nothing important to do here yet.
     '''
     pass
-
-  # Wait for messages
-  # Return True if message received, False if timeout
-  def receive(self):
-    timeout = time.time() + 0.5
-    while True:
-      ioloop.ZMQIOLoop.current()#self.loop.start()
-      if time.time() > timeout:
-        break
+  def sendError(self, msg):
     if not self.waiting:
-      return True
-    return False
-    
+        return
+    print msg
+    if self.sent_id >= msg['id']:
+        return
+    self.req.send_json({'type': msg['type'] + 'Response', 'key': msg['key'], 'id': msg['id'], 'error': 'Key not accessible'})    
+    self.waiting = False
+
   # If node is the origin, wait for correct get/set info to be forwarded.
   # In case of timeout, send an error response for get
   def collectReply(self, msg):
     if msg['origin'] == self.name:
-      if not self.receive():
-        self.req.send_json({'type': msg['type'] + 'Response', 'key': msg['key'], 'id': msg['id'], 'error': 'Key not accessible'})    
+      self.loop.add_timeout(time.time() + 1.5, lambda: self.sendError(msg))
+      #if not self.receive():
+      #  self.req.send_json({'type': msg['type'] + 'Response', 'key': msg['key'], 'id': msg['id'], 'error': 'Key not accessible'})    
 
   def collectAcks(self, msg):
-    self.receive()
-    for n in self.peer_names:
+    #print 'replies:', self.ackedNodes
+    for n in self.forward_nodes:
       if n not in self.ackedNodes:
         self.dead.append(n)
     self.ackedNodes = []
+    self.reply(msg)
 
   def handle(self, msg_frames):
     assert len(msg_frames) == 3
@@ -108,11 +107,12 @@ class Node:
     msg = json.loads(msg_frames[2])
 
     if msg['type'] != 'hello':
-        print msg['type'], self.name
+        print msg['type'], self.name, msg['id']
     if msg['type'] == 'get':
       # TODO: handle errors, esp. KeyError
       k = msg['key']
-      v = self.store[k]
+      if k in self.keyrange:
+        v = self.store[k]
       self.req.send_json({'type': 'log', 
                           'debug': {'event': 'getting', 
                                     'node': self.name, 
@@ -134,20 +134,22 @@ class Node:
                                     'value': v}})
       if 'origin' not in msg.keys():
         msg['origin'] = self.name
+        self.waiting = True
       if not self.forward(msg):
         self.consistentSet(k, v, msg)
-      self.collectReply(msg)
+      #self.collectReply(msg)
     elif msg['type'] == 'nodeset':
       k = msg['key']
       v = msg['value']
       if k in self.keyrange:
         self.store[k] = v
-        msg['destination'] = [self.peer_names[0]]
-        msg['sender'] = self.name
-        msg['type'] = ['nodesetAck']
-        self.req.send_json(msg)
+      msg['destination'] = [self.peer_names[0]]
+      msg['source'] = self.name
+      msg['type'] = 'nodesetAck'
+      print msg
+      self.req.send_json(msg)
     elif msg['type'] == 'nodesetAck':
-      self.ackedNodes.append(msg['sender'])
+      self.ackedNodes.append(msg['source'])
     elif msg['type'] == 'hello':
       # should be the very first message we see
       if not self.registered:
@@ -173,10 +175,12 @@ class Node:
     print 'forwarding', msg['type'], 'leader', self.leader, 'key', msg['key'], self.keyrange
     if msg['key'] not in self.keyrange:
       msg['destination'] = self.forward_nodes #[self.succ_leader, self.prev_leader] #self.peer_names
+      print msg
       self.req.send_json(msg) 
     elif not self.leader:
-      print 'sending to recipient', msg['type']
+      #print 'sending to recipient', msg['type']
       msg['destination'] = [self.peer_names[0]]
+      print msg
       self.req.send_json(msg) 
     else:
       return False
@@ -189,22 +193,26 @@ class Node:
         msg['destination'] = [msg['origin']]
       else:
         # Else change to next_names
-        msg['destination'] = self.peer_names
+        msg['destination'] = self.forward_nodes
       msg['type'] = msg['type'][:3] + 'Reply'
+      print msg
       self.req.send_json(msg)
     else:
-      print 'id', msg['id'], self.sent_id
+      #print 'id', msg['id'], self.sent_id
       if self.sent_id >= int(msg['id']):
         return
       msg['type'] = msg['type'][:3] + 'Response'
       self.sent_id = int(msg['id'])
+      print msg
       self.req.send_json(msg)
       self.waiting = False
       
   def consistentSet(self, k, v, msg):
-    self.req.send_json({'type': 'nodeset', 'key' : k, 'value' : v, 'destination': self.peer_names, 'id': msg['id']})    
-    self.collectAcks()
-    self.reply(msg)
+    print msg
+    self.req.send_json({'type': 'nodeset', 'key' : k, 'value' : v, 'source': self.name, 'destination': self.forward_nodes, 'id': msg['id']})    
+    self.loop.add_timeout(time.time() + 1.5, lambda: self.collectAcks(msg))
+    self.store[k] = v
+    #self.reply(msg)
 
   def consistentGet(self, k, msg):
     #TODO PAXOS
