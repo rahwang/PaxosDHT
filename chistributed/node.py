@@ -59,8 +59,10 @@ class Node:
         self.forward_nodes.remove(self.name)
 
     # This the actual data storage. Takes the form {'key': (msg_id, value), ...}
-    self.store = {'foo': (0, None)}
-
+    #self.store = {'foo': (0, None)}
+    self.store = {}
+    for k in self.keyrange:
+        self.store[k] = (0, 'hello')
     for sig in [signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGQUIT]:
       signal.signal(sig, self.shutdown)
 
@@ -114,6 +116,8 @@ class Node:
       k = msg['key']
       if k in self.keyrange:
         v = self.store[k][1]
+      else:
+        v = (0, '')
       self.req.send_json({'type': 'log', 
                           'debug': {'event': 'getting', 
                                     'node': self.name, 
