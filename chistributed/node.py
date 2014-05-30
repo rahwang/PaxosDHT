@@ -58,7 +58,8 @@ class Node:
         self.forward_nodes = self.peer_names[:]
         self.forward_nodes.remove(self.name)
 
-    self.store = {'foo': 'bar'}
+    # This the actual data storage. Takes the form {'key': (msg_id, value), ...}
+    self.store = {'foo': (0, None)}
 
     for sig in [signal.SIGTERM, signal.SIGINT, signal.SIGHUP, signal.SIGQUIT]:
       signal.signal(sig, self.shutdown)
@@ -112,7 +113,7 @@ class Node:
       # TODO: handle errors, esp. KeyError
       k = msg['key']
       if k in self.keyrange:
-        v = self.store[k]
+        v = self.store[k][1]
       self.req.send_json({'type': 'log', 
                           'debug': {'event': 'getting', 
                                     'node': self.name, 
@@ -142,7 +143,7 @@ class Node:
       k = msg['key']
       v = msg['value']
       if k in self.keyrange:
-        self.store[k] = v
+        self.store[k] = (msg['id'], v)
       msg['destination'] = [self.peer_names[0]]
       msg['source'] = self.name
       msg['type'] = 'nodesetAck'
@@ -211,12 +212,11 @@ class Node:
     print msg
     self.req.send_json({'type': 'nodeset', 'key' : k, 'value' : v, 'source': self.name, 'destination': self.forward_nodes, 'id': msg['id']})    
     self.loop.add_timeout(time.time() + 1.5, lambda: self.collectAcks(msg))
-    self.store[k] = v
-    #self.reply(msg)
+    self.store[k] = (msg['id'], v)
 
   def consistentGet(self, k, msg):
     #TODO PAXOS
-    v = self.store[k]
+    v = self.store[k][1]
     msg['value'] = v
     self.reply(msg)
 
