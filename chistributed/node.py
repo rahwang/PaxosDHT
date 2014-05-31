@@ -69,6 +69,7 @@ class Node:
     # Attributes for paxos get
     self.state = 'WAIT_PROPOSE'
     self.value = (0, None)
+    self.consensus = False
     self.prepared = []
     self.promised = []
     self.accepted = []
@@ -104,7 +105,7 @@ class Node:
   # In case of timeout, send an error response for get
   def collectReply(self, msg):
     if msg['origin'] == self.name:
-      self.loop.add_timeout(time.time() + 1.5, lambda: self.sendError(msg))
+      self.loop.add_timeout(time.time() + .5, lambda: self.sendError(msg))
       #if not self.receive():
       #  self.req.send_json({'type': msg['type'] + 'Response', 'key': msg['key'], 'id': msg['id'], 'error': 'Key not accessible'})    
 
@@ -136,7 +137,7 @@ class Node:
                           'source': self.name,
                           'destination': peer_names,
                           'id': msg['id']})
-      self.loop.add_timeout(time.time() + 1.5, lambda: self.collectAccepted(msg))
+      self.loop.add_timeout(time.time() + .5, lambda: self.collectAccepted(msg))
       
   def collectAccepted(self, msg):
     # TODO check failed
@@ -158,7 +159,7 @@ class Node:
                           'source': self.name,
                           'destination': peer_names,
                           'id': msg['id']})
-      self.loop.add_timeout(time.time() + 1.5, lambda: self.collectPromise(msg)) 
+      self.loop.add_timeout(time.time() + .5, lambda: self.collectPromise(msg)) 
 
   def handle(self, msg_frames):
     assert len(msg_frames) == 3
@@ -230,7 +231,7 @@ class Node:
                             'source': self.name,
                             'destination': peer_names,
                             'id': msg['id']})
-        self.loop.add_timeout(time.time() + 1.5, lambda: self.collectPromise(msg))
+        self.loop.add_timeout(time.time() + .5, lambda: self.collectPromise(msg))
     elif msg['type'] == 'promise':
       if self.state == 'WAIT_PROMISE':
         self.promised.append(msg['source'])
@@ -261,7 +262,7 @@ class Node:
         #                    'source': self.name,
         #                    'destination': peer_names,
         #                    'id': msg['id']})
-        self.loop.add_timeout(time.time() + 1.5, lambda: self.collectPromise(msg))
+        self.loop.add_timeout(time.time() + .5, lambda: self.collectPromise(msg))
     elif msg['type'] == 'accept':
       k = msg['key']
       if self.value == msg['value']:
@@ -278,6 +279,9 @@ class Node:
                             'source': self.name,
                             'destination': msg['source'],
                             'id': msg['id']})
+    elif msg['type'] == 'consensus':
+      self.consensus = True
+      self.value = msg['value']
     else:
       self.req.send_json({'type': 'log', 
                           'debug': {'event': 'unknown', 
@@ -334,22 +338,32 @@ class Node:
                         'source': self.name, 
                         'destination': self.peer_names, 
                         'id': msg['id']})    
-    self.loop.add_timeout(time.time() + 1.5, lambda: self.collectAcks(msg))
+    self.loop.add_timeout(time.time() + .5, lambda: self.collectAcks(msg))
     #self.store[k] = (msg['id'], v)
 
   def consistentGet(self, k, msg):
     #START PAXOS
     self.req.send_json({'type': 'propose', 
                         'key' : k, 
-                        'value' : v, 
+                        'value' : None, 
                         'source': self.name, 
                         'destination': self.peer_names, 
                         'id': msg['id']})    
-    self.loop.add_timeout(time.time() + 1.5, lambda: self.collectPrepare(msg))
+    self.loop.add_timeout(time.time() + .5, lambda: self.collectPrepare(msg))
+
+    self.loop.add_timeout(time.time() + 10, lambda: self.checkConsensus(msg))
 
     #v = self.store[k][1]
     msg['value'] = v
     self.reply(msg)
+
+  def checkConsensus(self, msg):
+    if self.consensus:
+      self.store[k] = self.value
+      msg['value'] = self.value
+      self.reply(msg)
+    else:
+      self.req.send_json({'type': msg['type'] + 'Response', 'key': msg['key'], 'id': msg['id'], 'error': 'No consensus reached'})   
 
 if __name__ == '__main__':
   import argparse
