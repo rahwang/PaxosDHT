@@ -5,6 +5,7 @@ import sys
 import signal
 import time
 import zmq
+import math
 from zmq.eventloop import ioloop, zmqstream
 ioloop.install()
 
@@ -28,9 +29,9 @@ class Node:
     self.req.on_recv(self.handle_broker_message)
 
     self.name = node_name
-    if self.name in ['test1','test2']:
+    if self.name in ['test1','test2','test3']:
         self.keyrange = ['foo']
-    if self.name in ['test3','test4']:
+    if self.name in ['test4']:
         self.keyrange = ['bar']
     if self.name in ['test5','test6']:
         self.keyrange = ['baz']
@@ -90,14 +91,15 @@ class Node:
   def sendError(self, msg):
     if not self.waiting:
         return
-    print msg
+    #print msg
     if self.sent_id >= msg['id']:
         return
     self.req.send_json({'type': msg['type'] + 'Response', 'key': msg['key'], 'id': msg['id'], 'error': 'Key not accessible'})    
     self.waiting = False
 
   def majority(self, nodes):
-    if len(nodes) > (len(self.peer_names) - len(self.dead)):
+    print len(nodes), math.ceil((len(self.peer_names) - len(self.dead)) / 2)
+    if len(nodes) >= math.ceil((len(self.peer_names) - len(self.dead)) / 2):
       return True
     return False
 
@@ -105,7 +107,7 @@ class Node:
   # In case of timeout, send an error response for get
   def collectReply(self, msg):
     if msg['origin'] == self.name:
-      self.loop.add_timeout(time.time() + .5, lambda: self.sendError(msg))
+      self.loop.add_timeout(time.time() + 10, lambda: self.sendError(msg))
       #if not self.receive():
       #  self.req.send_json({'type': msg['type'] + 'Response', 'key': msg['key'], 'id': msg['id'], 'error': 'Key not accessible'})    
 
@@ -128,28 +130,32 @@ class Node:
   def collectPromise(self, msg):
     # TODO check failed
     k = msg['key']
-    self.promised = List(Set(self.promised))
+    self.promised = list(set(self.promised))
+    print 'promises', self.name, self.promised
     if self.majority(self.promised):
+      self.value = msg['value']
+      print 'promise majority'
       self.state = "WAIT_ACCEPTED"
       self.req.send_json({'type': 'accept', 
                           'key': k,
                           'value': self.store[k],
                           'source': self.name,
-                          'destination': peer_names,
+                          'destination': self.peer_names,
                           'id': msg['id']})
       self.loop.add_timeout(time.time() + .5, lambda: self.collectAccepted(msg))
       
   def collectAccepted(self, msg):
     # TODO check failed
     k = msg['key']
-    self.accepted = List(Set(self.accepted))
+    self.accepted = list(set(self.accepted))
     if self.majority(self.accepted):
+      print 'majority'
       self.state = "CONSENSUS"
       self.req.send_json({'type': 'consensus', 
                           'key': k,
                           'value': self.store[k],
                           'source': self.name,
-                          'destination': peer_names,
+                          'destination': self.peer_names,
                           'id': msg['id']})
     elif self.majority(self.rejected):
       self.state = "WAIT_PROMISE"
@@ -157,7 +163,7 @@ class Node:
                           'key': k,
                           'value': self.store[k],
                           'source': self.name,
-                          'destination': peer_names,
+                          'destination': self.peer_names,
                           'id': msg['id']})
       self.loop.add_timeout(time.time() + .5, lambda: self.collectPromise(msg)) 
 
@@ -187,6 +193,7 @@ class Node:
       if not self.forward(msg):
         self.consistentGet(k, msg)
       self.collectReply(msg)
+      print self.name, 'collectReplied'
     elif msg['type'] == 'set':
       k = msg['key']
       v = msg['value']        
@@ -208,7 +215,7 @@ class Node:
       msg['destination'] = [self.peer_names[0]]
       msg['source'] = self.name
       msg['type'] = 'nodesetAck'
-      print msg
+      #print msg
       self.req.send_json(msg)
     elif msg['type'] == 'nodesetAck':
       self.nodeseted.append(msg['source'])
@@ -222,6 +229,7 @@ class Node:
     elif msg['type'] == 'setReply':
       self.reply(msg)
     elif msg['type'] == 'propose':
+      #print 'received propose', self.name
       k = msg['key']
       if self.state == 'WAIT_PROPOSE':
         self.state = 'WAIT_PROMISE'
@@ -229,9 +237,10 @@ class Node:
                             'key': k,
                             'value': self.store[k],
                             'source': self.name,
-                            'destination': peer_names,
+                            'destination': self.peer_names,
                             'id': msg['id']})
-        self.loop.add_timeout(time.time() + .5, lambda: self.collectPromise(msg))
+        print 'sending prepare', self.name, 'to', self.peer_names
+        self.loop.add_timeout(time.time() + 1.5, lambda: self.collectPromise(msg))
     elif msg['type'] == 'promise':
       if self.state == 'WAIT_PROMISE':
         self.promised.append(msg['source'])
@@ -242,9 +251,10 @@ class Node:
       if self.state == 'WAIT_ACCEPTED':
         self.rejected.append(msg['source'])
     elif msg['type'] == 'prepare':
+      print 'received prepare', self.name, 'from', msg['source']
       k = msg['key']
       if msg['value'][0] > self.value[0]:
-        self.store = msg['value']
+        self.store[msg['key']] = msg['value']
         self.promised = []
         self.accepted = []
         self.rejected = []
@@ -253,8 +263,9 @@ class Node:
                             'key': k,
                             'value': self.store[k],
                             'source': self.name,
-                            'destination': msg['source'],
+                            'destination': [msg['source']],
                             'id': msg['id']})
+        print 'promise sent', self.name
         #self.state = 'WAIT_PROMISE'
         #self.req.send_json({'type': 'prepare', 
         #                    'key': k,
@@ -262,15 +273,16 @@ class Node:
         #                    'source': self.name,
         #                    'destination': peer_names,
         #                    'id': msg['id']})
-        self.loop.add_timeout(time.time() + .5, lambda: self.collectPromise(msg))
+        self.loop.add_timeout(time.time() + 1.5, lambda: self.collectPromise(msg))
     elif msg['type'] == 'accept':
       k = msg['key']
+      print 'accept message', self.value, msg['value'], self.name
       if self.value == msg['value']:
         self.req.send_json({'type': 'accepted', 
                             'key': k,
                             'value': self.store[k],
                             'source': self.name,
-                            'destination': msg['source'],
+                            'destination': [msg['source']],
                             'id': msg['id']})
       elif self.value[0] < msg['value'][0]:
         self.req.send_json({'type': 'rejected', 
@@ -295,43 +307,45 @@ class Node:
 
   # Forwards msg to correct nodes. Returns True is msg forwarded, False if no forwarding needed
   def forward(self, msg):
-    print 'forwarding', msg['type'], 'leader', self.leader, 'key', msg['key'], self.keyrange
+    #print 'forwarding', msg['type'], 'leader', self.leader, 'key', msg['key'], self.keyrange
     if msg['key'] not in self.keyrange:
       msg['destination'] = self.forward_nodes #[self.succ_leader, self.prev_leader] #self.peer_names
-      print msg
+      #print msg
       self.req.send_json(msg) 
     elif not self.leader:
       #print 'sending to recipient', msg['type']
       msg['destination'] = [self.peer_names[0]]
-      print msg
+      #print msg
       self.req.send_json(msg) 
     else:
       return False
     return True
 
   def reply(self, msg):
-    print 'origin:', msg['type'], msg['origin'], self.name
+    #print 'origin:', msg['type'], msg['origin'], self.name
     if msg['origin'] != self.name:
       if msg['origin'] in self.peer_names:
-        msg['destination'] = [msg['origin']]
+        msg[u'destination'] = [msg['origin']]
       else:
         # Else change to next_names
         msg['destination'] = self.forward_nodes
       msg['type'] = msg['type'][:3] + 'Reply'
+      msg['source'] = self.name
       print msg
       self.req.send_json(msg)
+      print 'sent'
     else:
       #print 'id', msg['id'], self.sent_id
       if self.sent_id >= int(msg['id']):
         return
       msg['type'] = msg['type'][:3] + 'Response'
       self.sent_id = int(msg['id'])
-      print msg
+      #print msg
       self.req.send_json(msg)
       self.waiting = False
       
   def consistentSet(self, k, v, msg):
-    print msg
+    #print msg
     self.req.send_json({'type': 'nodeset', 
                         'key' : k, 
                         'value' : v, 
@@ -351,19 +365,26 @@ class Node:
                         'id': msg['id']})    
     self.loop.add_timeout(time.time() + .5, lambda: self.collectPrepare(msg))
 
-    self.loop.add_timeout(time.time() + 10, lambda: self.checkConsensus(msg))
+    self.loop.add_timeout(time.time() + 6, lambda: self.checkConsensus(msg))
 
     #v = self.store[k][1]
-    msg['value'] = v
-    self.reply(msg)
+    #msg['value'] = v
+    #self.reply(msg)
 
   def checkConsensus(self, msg):
+    print 'consensus', self.consensus, msg['origin']
     if self.consensus:
-      self.store[k] = self.value
-      msg['value'] = self.value
+      print 'self.value', self.value
+      self.store[msg['key']] = self.value
+      msg['value'] = self.value[1]
+      print 'consensus message', msg
       self.reply(msg)
     else:
-      self.req.send_json({'type': msg['type'] + 'Response', 'key': msg['key'], 'id': msg['id'], 'error': 'No consensus reached'})   
+      
+      #new_msg = 
+      self.reply({'type': msg['type'] + 'Response', 'key': msg['key'], 'id': msg['id'], 'value': 'No consensus reached', 'origin': msg['origin']})
+      #new_msg['origin'] = msg['origin']
+      #self.reply(new_msg)
 
 if __name__ == '__main__':
   import argparse
