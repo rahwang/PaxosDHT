@@ -193,10 +193,29 @@ class Node:
 
     if msg['type'] != 'hello':
       print msg['type'], self.name, msg['id']
+
+    if msg['type'] in ['propose', 'promise', 'accepted', 'rejected', 'accept', 'prepare', 'consensus']:
+      self.handle_paxos(msg)
+      return
+    elif msg['type'] == 'ack':
+      # TODO SOME HANDLING
+      return
+    elif msg['type'] == 'hello':
+      # should be the very first message we see
+      if not self.registered:
+        self.reqsendjson({'type': 'hello', 'source': self.name})
+        self.registered = True
+      return
+   
+    # Messages which require acks
+
+    msg['key'] = int(msg['key'])
+    k = msg['key']
+    if 'value' in msg.keys():
+      v = msg['value'] 
+
     if msg['type'] == 'get':
       # TODO: handle errors, esp. KeyError
-      msg['key'] = int(msg['key'])
-      k = msg['key']
       if k in self.keyrange:
         v = self.store[k][1]
       else:
@@ -214,9 +233,6 @@ class Node:
       self.collectReply(msg)
       print self.name, 'collectReplied'
     elif msg['type'] == 'set':
-      msg['key'] = int(msg['key'])
-      k = msg['key']
-      v = msg['value']        
       self.reqsendjson({'type': 'log', 
                           'debug': {'event': 'setting', 
                                     'node': self.name, 
@@ -228,30 +244,26 @@ class Node:
       if not self.forward(msg):
         self.consistentSet(k, v, msg)
     elif msg['type'] == 'nodeset':
-      k = msg['key']
-      v = msg['value']
       if k in self.keyrange:
         self.store[k] = (msg['id'], v)
         print 'NODESET', self.store[k], self.name
-      msg['destination'] = [self.peer_leader]
-      msg['source'] = self.name
-      msg['type'] = 'nodesetAck'
-      #print msg
-      self.reqsendjson(msg)
-    elif msg['type'] == 'nodesetAck':
-      self.nodeseted.append(msg['source'])
-    elif msg['type'] == 'hello':
-      # should be the very first message we see
-      if not self.registered:
-        self.reqsendjson({'type': 'hello', 'source': self.name})
-        self.registered = True
     elif msg['type'] == 'getReply':
       self.reply(msg)
     elif msg['type'] == 'setReply':
       self.reply(msg)
-    elif msg['type'] == 'propose':
+    else:
+      self.reqsendjson({'type': 'log', 
+                          'debug': {'event': 'unknown', 
+                                    'node': self.name}})
+    #TODO send ack here
+
+  def handle_paxos(self, msg):
+    k = msg['key']
+    if 'value' in msg.keys():
+      v = msg['value'] 
+    
+    if msg['type'] == 'propose':
       #print 'received propose', self.name
-      k = msg['key']
       if self.state == 'WAIT_PROPOSE':
         self.state = 'WAIT_PROMISE'
         self.reqsendjson({'type': 'prepare', 
@@ -273,7 +285,6 @@ class Node:
         self.rejected.append(msg['source'])
     elif msg['type'] == 'prepare':
       print 'received prepare', self.name, 'from', msg['source']
-      k = msg['key']
       if msg['value'][0] > self.value[0]:
         self.store[msg['key']] = msg['value']
         self.promised = []
@@ -287,16 +298,8 @@ class Node:
                             'destination': [msg['source']],
                             'id': msg['id']})
         print 'promise sent', self.name
-        #self.state = 'WAIT_PROMISE'
-        #self.reqsendjson({'type': 'prepare', 
-        #                    'key': k,
-        #                    'value': self.store[k],
-        #                    'source': self.name,
-        #                    'destination': peer_names,
-        #                    'id': msg['id']})
         self.loop.add_timeout(time.time() + 1.5, lambda: self.collectPromise(msg))
     elif msg['type'] == 'accept':
-      k = msg['key']
       print 'accept message', self.value, msg['value'], self.name
       if self.value == msg['value']:
         self.reqsendjson({'type': 'accepted', 

@@ -311,7 +311,7 @@ class Broker:
     if not hasattr(self, "devnull"):
       self.devnull = open(os.devnull, "w")
 
-    proc = subprocess.Popen(args, shell=True, stdout=self.devnull, stderr=self.devnull)
+    proc = subprocess.Popen(args, shell=True)
     self.node_pids[command['name']] = proc
 
     self.script_conditions.add('hello')
