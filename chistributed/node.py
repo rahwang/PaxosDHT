@@ -29,12 +29,20 @@ class Node:
     self.req.on_recv(self.handle_broker_message)
 
     self.name = node_name
+    '''
     if self.name in ['test1','test2','test3']:
         self.keyrange = ['foo']
-    if self.name in ['test4']:
+    if self.name in ['test3','test4']:
         self.keyrange = ['bar']
     if self.name in ['test5','test6']:
         self.keyrange = ['baz']
+    '''
+    if self.name in ['testA','test2','test3','test4','test5']:
+        self.keyrange = [i for i in range(1,6)]
+    if self.name in ['test6','test7','test8','test9','test10']:
+        self.keyrange = [i for i in range(6,11)]
+    if self.name in ['test11','test12','test13','test14','test15']:
+        self.keyrange = [i for i in range(11,16)]
     self.spammer = spammer
     self.peer_names = peer_names
     self.sent_id = 0
@@ -55,6 +63,7 @@ class Node:
         self.prev_leader = self.prev_group[0]
         self.succ_leader = self.succ_group[0]
         self.forward_nodes = [self.succ_leader]
+        self.peer_leader = self.peer_names[0]
     else:
         self.forward_nodes = self.peer_names[:]
         self.forward_nodes.remove(self.name)
@@ -76,6 +85,13 @@ class Node:
     self.accepted = []
     self.rejected = []
 
+  def reqsendjson(self,msg):
+    if 'destination' in msg.values():
+        i = 3
+    else:
+        i = 1
+    for j in range(i):
+        self.req.send_json(msg)
   def start(self):
     '''
     Simple manual poller, dispatching received messages and sending those in
@@ -94,7 +110,7 @@ class Node:
     #print msg
     if self.sent_id >= msg['id']:
         return
-    self.req.send_json({'type': msg['type'] + 'Response', 'key': msg['key'], 'id': msg['id'], 'error': 'Key not accessible'})    
+    self.reqsendjson({'type': msg['type'] + 'Response', 'key': msg['key'], 'id': msg['id'], 'error': 'Key not accessible'})    
     self.waiting = False
 
   def majority(self, nodes):
@@ -109,12 +125,12 @@ class Node:
     if msg['origin'] == self.name:
       self.loop.add_timeout(time.time() + 10, lambda: self.sendError(msg))
       #if not self.receive():
-      #  self.req.send_json({'type': msg['type'] + 'Response', 'key': msg['key'], 'id': msg['id'], 'error': 'Key not accessible'})    
+      #  self.reqsendjson({'type': msg['type'] + 'Response', 'key': msg['key'], 'id': msg['id'], 'error': 'Key not accessible'})    
 
   def collectAcks(self, msg):
     #print 'replies:', self.nodeseted
     # TODO check failed
-    for n in self.forward_nodes:
+    for n in self.peer_names:
       if (n not in self.nodeseted) and (n not in self.dead):
         self.dead.append(n)
     self.nodeseted = []
@@ -133,10 +149,10 @@ class Node:
     self.promised = list(set(self.promised))
     print 'promises', self.name, self.promised
     if self.majority(self.promised):# and self.state == 'WAIT_PROMISE':
-      self.value = msg['value']
+      self.value = self.store[k]#299msg['value']
       print 'promise majority'
       self.state = "WAIT_ACCEPTED"
-      self.req.send_json({'type': 'accept', 
+      self.reqsendjson({'type': 'accept', 
                           'key': k,
                           'value': self.store[k],
                           'source': self.name,
@@ -151,7 +167,7 @@ class Node:
     if self.majority(self.accepted):
       print 'majority'
       self.state = "CONSENSUS"
-      self.req.send_json({'type': 'consensus', 
+      self.reqsendjson({'type': 'consensus', 
                           'key': k,
                           'value': self.store[k],
                           'source': self.name,
@@ -159,7 +175,7 @@ class Node:
                           'id': msg['id']})
     elif self.majority(self.rejected):
       self.state = "WAIT_PROMISE"
-      self.req.send_json({'type': 'prepare', 
+      self.reqsendjson({'type': 'prepare', 
                           'key': k,
                           'value': self.store[k],
                           'source': self.name,
@@ -169,6 +185,8 @@ class Node:
 
   def handle(self, msg_frames):
     assert len(msg_frames) == 3
+    if msg_frames[0] != self.name:
+        print msg_frames[0], self.name
     assert msg_frames[0] == self.name
     # Second field is the empty delimiter
     msg = json.loads(msg_frames[2])
@@ -177,12 +195,13 @@ class Node:
       print msg['type'], self.name, msg['id']
     if msg['type'] == 'get':
       # TODO: handle errors, esp. KeyError
+      msg['key'] = int(msg['key'])
       k = msg['key']
       if k in self.keyrange:
         v = self.store[k][1]
       else:
         v = (0, '')
-      self.req.send_json({'type': 'log', 
+      self.reqsendjson({'type': 'log', 
                           'debug': {'event': 'getting', 
                                     'node': self.name, 
                                     'key': k, 
@@ -195,9 +214,10 @@ class Node:
       self.collectReply(msg)
       print self.name, 'collectReplied'
     elif msg['type'] == 'set':
+      msg['key'] = int(msg['key'])
       k = msg['key']
       v = msg['value']        
-      self.req.send_json({'type': 'log', 
+      self.reqsendjson({'type': 'log', 
                           'debug': {'event': 'setting', 
                                     'node': self.name, 
                                     'key': k, 
@@ -213,17 +233,17 @@ class Node:
       if k in self.keyrange:
         self.store[k] = (msg['id'], v)
         print 'NODESET', self.store[k], self.name
-      msg['destination'] = [self.peer_names[0]]
+      msg['destination'] = [self.peer_leader]
       msg['source'] = self.name
       msg['type'] = 'nodesetAck'
       #print msg
-      self.req.send_json(msg)
+      self.reqsendjson(msg)
     elif msg['type'] == 'nodesetAck':
       self.nodeseted.append(msg['source'])
     elif msg['type'] == 'hello':
       # should be the very first message we see
       if not self.registered:
-        self.req.send_json({'type': 'hello', 'source': self.name})
+        self.reqsendjson({'type': 'hello', 'source': self.name})
         self.registered = True
     elif msg['type'] == 'getReply':
       self.reply(msg)
@@ -234,7 +254,7 @@ class Node:
       k = msg['key']
       if self.state == 'WAIT_PROPOSE':
         self.state = 'WAIT_PROMISE'
-        self.req.send_json({'type': 'prepare', 
+        self.reqsendjson({'type': 'prepare', 
                             'key': k,
                             'value': self.store[k],
                             'source': self.name,
@@ -260,7 +280,7 @@ class Node:
         self.accepted = []
         self.rejected = []
         self.prepared.append(msg['source']) 
-        self.req.send_json({'type': 'promise', 
+        self.reqsendjson({'type': 'promise', 
                             'key': k,
                             'value': self.store[k],
                             'source': self.name,
@@ -268,7 +288,7 @@ class Node:
                             'id': msg['id']})
         print 'promise sent', self.name
         #self.state = 'WAIT_PROMISE'
-        #self.req.send_json({'type': 'prepare', 
+        #self.reqsendjson({'type': 'prepare', 
         #                    'key': k,
         #                    'value': self.store[k],
         #                    'source': self.name,
@@ -279,14 +299,14 @@ class Node:
       k = msg['key']
       print 'accept message', self.value, msg['value'], self.name
       if self.value == msg['value']:
-        self.req.send_json({'type': 'accepted', 
+        self.reqsendjson({'type': 'accepted', 
                             'key': k,
                             'value': self.store[k],
                             'source': self.name,
                             'destination': [msg['source']],
                             'id': msg['id']})
       elif self.value[0] < msg['value'][0]:
-        self.req.send_json({'type': 'rejected', 
+        self.reqsendjson({'type': 'rejected', 
                             'key': k,
                             'value': self.store[k],
                             'source': self.name,
@@ -298,7 +318,7 @@ class Node:
       self.store[msg['key']] = self.value
       self.state = 'WAIT_PROPOSE'
     else:
-      self.req.send_json({'type': 'log', 
+      self.reqsendjson({'type': 'log', 
                           'debug': {'event': 'unknown', 
                                     'node': self.name}})
 
@@ -314,12 +334,12 @@ class Node:
     if msg['key'] not in self.keyrange:
       msg['destination'] = self.forward_nodes #[self.succ_leader, self.prev_leader] #self.peer_names
       #print msg
-      self.req.send_json(msg) 
+      self.reqsendjson(msg) 
     elif not self.leader:
       #print 'sending to recipient', msg['type']
-      msg['destination'] = [self.peer_names[0]]
+      msg['destination'] = [self.peer_leader]
       #print msg
-      self.req.send_json(msg) 
+      self.reqsendjson(msg) 
     else:
       return False
     return True
@@ -335,7 +355,7 @@ class Node:
       msg['type'] = msg['type'][:3] + 'Reply'
       msg['source'] = self.name
       print msg
-      self.req.send_json(msg)
+      self.reqsendjson(msg)
       print 'sent'
     else:
       #print 'id', msg['id'], self.sent_id
@@ -344,14 +364,14 @@ class Node:
       msg['type'] = msg['type'][:3] + 'Response'
       self.sent_id = int(msg['id'])
       #print msg
-      self.req.send_json(msg)
+      self.reqsendjson(msg)
       self.waiting = False
       if msg['type'] == 'getResponse':
         print self.name, 'accepted:', self.accepted, 'rejected:', self.rejected, 'promised:', self.promised, self.value
       
   def consistentSet(self, k, v, msg):
     #print msg
-    self.req.send_json({'type': 'nodeset', 
+    self.reqsendjson({'type': 'nodeset', 
                         'key' : k, 
                         'value' : v, 
                         'source': self.name, 
@@ -362,7 +382,7 @@ class Node:
 
   def consistentGet(self, k, msg):
     #START PAXOS
-    self.req.send_json({'type': 'propose', 
+    self.reqsendjson({'type': 'propose', 
                         'key' : k, 
                         'value' : None, 
                         'source': self.name, 
