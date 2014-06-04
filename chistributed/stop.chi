@@ -1,9 +1,7 @@
 start test1 --peer-names test1,test2,test3
 start test2 --peer-names test1,test2,test3
 start test3 --peer-names test1,test2,test3
-set test2 foo 8
-get test2 foo
-set test2 foo 4
+set test3 foo 8
 get test2 foo
 stop test1
 get test3 foo

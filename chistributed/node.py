@@ -132,7 +132,7 @@ class Node:
     k = msg['key']
     self.promised = list(set(self.promised))
     print 'promises', self.name, self.promised
-    if self.majority(self.promised):
+    if self.majority(self.promised):# and self.state == 'WAIT_PROMISE':
       self.value = msg['value']
       print 'promise majority'
       self.state = "WAIT_ACCEPTED"
@@ -212,6 +212,7 @@ class Node:
       v = msg['value']
       if k in self.keyrange:
         self.store[k] = (msg['id'], v)
+        print 'NODESET', self.store[k], self.name
       msg['destination'] = [self.peer_names[0]]
       msg['source'] = self.name
       msg['type'] = 'nodesetAck'
@@ -294,6 +295,8 @@ class Node:
     elif msg['type'] == 'consensus':
       self.consensus = True
       self.value = msg['value']
+      self.store[msg['key']] = self.value
+      self.state = 'WAIT_PROPOSE'
     else:
       self.req.send_json({'type': 'log', 
                           'debug': {'event': 'unknown', 
@@ -343,6 +346,8 @@ class Node:
       #print msg
       self.req.send_json(msg)
       self.waiting = False
+      if msg['type'] == 'getResponse':
+        print self.name, 'accepted:', self.accepted, 'rejected:', self.rejected, 'promised:', self.promised, self.value
       
   def consistentSet(self, k, v, msg):
     #print msg
@@ -372,7 +377,8 @@ class Node:
     #self.reply(msg)
 
   def checkConsensus(self, msg):
-    print 'consensus', self.consensus, msg['origin']
+    #print 'consensus', self.consensus, msg['origin']
+    print self.name, 'accepted:', self.accepted, 'rejected:', self.rejected, 'promised:', self.promised, self.value
     if self.consensus:
       print 'self.value', self.value
       self.store[msg['key']] = self.value
