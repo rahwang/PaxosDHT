@@ -86,12 +86,13 @@ class Node:
     self.rejected = []
 
   def reqsendjson(self,msg):
-    if 'destination' in msg.values():
-        i = 3
-    else:
-        i = 1
-    for j in range(i):
-        self.req.send_json(msg)
+    # Send msg
+    self.req.send_json(msg)
+
+    # The following message types need acks
+    if msg['type'] in ['get', 'set', 'getReply', 'setReply', 'nodeset']:
+      self.loop.add_timeout(time.time() + 0.5, lambda: self.collectAcks(msg))
+      
   def start(self):
     '''
     Simple manual poller, dispatching received messages and sending those in
@@ -128,13 +129,26 @@ class Node:
       #  self.reqsendjson({'type': msg['type'] + 'Response', 'key': msg['key'], 'id': msg['id'], 'error': 'Key not accessible'})    
 
   def collectAcks(self, msg):
-    #print 'replies:', self.nodeseted
-    # TODO check failed
-    for n in self.peer_names:
-      if (n not in self.nodeseted) and (n not in self.dead):
-        self.dead.append(n)
-    self.nodeseted = []
-    self.reply(msg)
+    if msg['type'] == 'nodeset':
+      for n in self.peer_names:
+        if (n not in self.nodeseted) and (n not in self.dead):
+          self.dead.append(n)
+      self.nodeseted = []
+      self.reply(msg)
+    elif msg['type'] in ['get', 'set']:
+      if msg['destination'] == self.peer_leader:
+        # Start leader election
+        pass
+      else:
+        # Try sending to the next node
+        pass
+    elif msg['type'] in ['getReply', 'setReply']:
+      if msg['destination'] == msg['origin']:
+        # Fail
+        pass
+      else:
+        # Try sending to the next node
+        pass
 
   def collectPrepare(self, msg):
     # TODO check failed
@@ -255,7 +269,15 @@ class Node:
       self.reqsendjson({'type': 'log', 
                           'debug': {'event': 'unknown', 
                                     'node': self.name}})
-    #TODO send ack here
+    self.sendack(msg)
+
+  def sendack(self, msg):
+    if 'source' in msg.keys():
+      msg['prevtype'] = msg['type']
+      msg['type'] = 'ack'
+      msg['destination'] = msg['source']
+      msg['source'] = self.name
+      self.reqsendjson(msg)
 
   def handle_paxos(self, msg):
     k = msg['key']
