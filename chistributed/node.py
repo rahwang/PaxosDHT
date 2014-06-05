@@ -11,7 +11,7 @@ ioloop.install()
 
 class Node:
   def __init__(self, node_name, pub_endpoint, router_endpoint, spammer, peer_names, prev_group, succ_group):
-    sys.stdout = open('logging', 'a') 
+    #sys.stdout = open('logging', 'a') 
     self.loop = ioloop.ZMQIOLoop.current()
     self.context = zmq.Context()
     # SUB socket for receiving messages from the broker
@@ -150,8 +150,9 @@ class Node:
         pass
       else:
         i = (self.succ_group.index(msg['destination'][0]) + 1) % len(self.succ_group)
-        msg['destination'] = self.succ_group[i]
+        msg['destination'] = [self.succ_group[i]]
         self.reqsendjson(msg)
+        print 'next node', msg
         # Try sending to the next node
         pass
     elif msg['type'] in ['getReply', 'setReply']:
@@ -251,11 +252,11 @@ class Node:
         v = self.store[k][1]
       else:
         v = (0, '')
-      self.reqsendjson({'type': 'log', 
-                          'debug': {'event': 'getting', 
-                                    'node': self.name, 
-                                    'key': k, 
-                                    'value': v}})
+      #self.reqsendjson({'type': 'log', 
+                          #'debug': {'event': 'getting', 
+                          #          'node': self.name, 
+                          #          'key': k, 
+                          #          'value': v}})
       if 'origin' not in msg.keys():
         msg['origin'] = self.name
         self.waiting = True
@@ -264,11 +265,11 @@ class Node:
       self.collectReply(msg)
       #print self.name, 'collectReplied'
     elif msg['type'] == 'set':
-      self.reqsendjson({'type': 'log', 
-                          'debug': {'event': 'setting', 
-                                    'node': self.name, 
-                                    'key': k, 
-                                    'value': v}})
+      #self.reqsendjson({'type': 'log', 
+                        #  'debug': {'event': 'setting', 
+                        #            'node': self.name, 
+                        #            'key': k, 
+                        #            'value': v}})
       if 'origin' not in msg.keys():
         msg['origin'] = self.name
         self.waiting = True
