@@ -396,14 +396,15 @@ class Node:
       
   def consistentSet(self, k, v, msg):
     #print msg
-    self.reqsendjson({'type': 'nodeset', 
-                        'key' : k, 
-                        'value' : v, 
-                        'source': self.name, 
-                        'destination': self.peer_names, 
-                        'id': msg['id']})    
-    self.loop.add_timeout(time.time() + .5, lambda: self.collectAcks(msg))
-    #self.store[k] = (msg['id'], v)
+    new_msg = {'type': 'nodeset', 
+               'key' : k, 
+               'value' : v, 
+               'source': self.name, 
+               'destination': self.peer_names, 
+               'origin': msg['origin'],
+               'id': msg['id']}
+    self.reqsendjson(new_msg)
+    self.loop.add_timeout(time.time() + .5, lambda: self.collectAcks(new_msg))
 
   def consistentGet(self, k, msg):
     #START PAXOS
