@@ -11,7 +11,7 @@ ioloop.install()
 
 class Node:
   def __init__(self, node_name, pub_endpoint, router_endpoint, spammer, peer_names, prev_group, succ_group):
-    #sys.stdout = open('logging', 'a') 
+    sys.stdout = open('logging', 'a') 
     self.loop = ioloop.ZMQIOLoop.current()
     self.context = zmq.Context()
     # SUB socket for receiving messages from the broker
@@ -59,7 +59,7 @@ class Node:
     if self.peer_names[0] == self.name:
         self.leader = True
     else:
-        self.leader = False
+        self.leader = True
     if len(self.succ_group) > 1 and len(self.prev_group) > 1:
         self.prev_leader = self.prev_group[0]
         self.succ_leader = self.succ_group[0]
