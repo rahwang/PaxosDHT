@@ -11,7 +11,7 @@ ioloop.install()
 
 class Node:
   def __init__(self, node_name, pub_endpoint, router_endpoint, spammer, peer_names, prev_group, succ_group):
-    sys.stdout = open('logging', 'a') 
+   # sys.stdout = open('logging', 'a') 
     self.loop = ioloop.ZMQIOLoop.current()
     self.context = zmq.Context()
     # SUB socket for receiving messages from the broker
@@ -48,7 +48,6 @@ class Node:
     self.sent_id = 0
     self.succ_group = succ_group
     self.prev_group = prev_group
-    self.nodeseted = []
     self.dead = []
     self.outstanding_acks = []
 
@@ -134,6 +133,8 @@ class Node:
       #  self.reqsendjson({'type': msg['type'] + 'Response', 'key': msg['key'], 'id': msg['id'], 'error': 'Key not accessible'})    
 
   def collectAcks(self, msg):
+    if self.name == 'test2':
+      print 'outstanding acks', self.outstanding_acks, msg['type']
     if msg['type'] == 'nodeset':
       for n in self.peer_names:
         if ((n,msg['id']) in self.outstanding_acks) and (n not in self.dead):
@@ -142,14 +143,16 @@ class Node:
       msg['type'] = 'set'
       self.reply(msg)
       return
-    if ((msg['destination'],msg['id']) not in self.outstanding_acks):
+    if ((msg['destination'][0],msg['id']) not in self.outstanding_acks):
         return 
     elif msg['type'] in ['get', 'set']:
+      print "OUTSTANDING ACK", msg['destination']
       if msg['destination'] == [self.peer_leader]:
         # Start leader election
         pass
       else:
         i = (self.succ_group.index(msg['destination'][0]) + 1) % len(self.succ_group)
+        self.outstanding_acks.remove((msg['destination'][0],msg['id']))
         msg['destination'] = [self.succ_group[i]]
         self.reqsendjson(msg)
         print 'next node', msg
@@ -222,9 +225,11 @@ class Node:
     msg = json.loads(msg_frames[2])
 
     if msg['type'] != 'hello':
-      print msg['type'], self.name, msg['id']
+      print msg['type'], self.name, msg['id'],
+      if 'source' in msg.keys():
+        print msg['source']
 
-    if msg['type'] in ['propose', 'promise', 'accepted', 'rejected', 'accept', 'prepare', 'consensus']:
+    if msg['type'] in ['propose', 'promise', 'nopromise', 'accepted', 'rejected', 'accept', 'prepare', 'consensus']:
       self.handle_paxos(msg)
       return
     elif msg['type'] == 'ack':
@@ -286,6 +291,7 @@ class Node:
     else:
       self.reqsendjson({'type': 'log', 
                           'debug': {'event': 'unknown', 
+                                    'prev_type': msg['type'],
                                     'node': self.name}})
     self.sendack(msg)
 
@@ -304,7 +310,7 @@ class Node:
     
     if msg['type'] == 'propose':
       #print 'received propose', self.name
-      if self.state == 'WAIT_PROPOSE':
+      if ((self.state == 'CONSENSUS') and (msg['id'] != self.store[k][0])) or (self.state == 'WAIT_PROPOSE'):
         self.state = 'WAIT_PROMISE'
         self.reqsendjson({'type': 'prepare', 
                             'key': k,
@@ -340,8 +346,6 @@ class Node:
                             'source': self.name,
                             'destination': [msg['source']],
                             'id': msg['id']})
-        #print 'promise sent', self.name
-        #self.loop.add_timeout(time.time() + 1.5, lambda: self.collectPromise(msg))
       else:
         self.reqsendjson({'type': 'nopromise',
                             'source': self.name,
@@ -368,7 +372,7 @@ class Node:
       self.consensus = True
       self.value = msg['value']
       self.store[msg['key']] = self.value
-      self.state = 'WAIT_PROPOSE'
+      self.state = 'CONSENSUS'
     else:
       self.reqsendjson({'type': 'log', 
                           'debug': {'event': 'unknown', 
@@ -441,7 +445,7 @@ class Node:
                         'source': self.name, 
                         'destination': self.peer_names, 
                         'id': msg['id']})    
-    self.loop.add_timeout(time.time() + .5, lambda: self.collectPrepare(msg))
+    #self.loop.add_timeout(time.time() + .5, lambda: self.collectPrepare(msg))
 
     self.loop.add_timeout(time.time() + 6, lambda: self.checkConsensus(msg))
 
