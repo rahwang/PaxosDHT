@@ -11,7 +11,7 @@ ioloop.install()
 
 class Node:
   def __init__(self, node_name, pub_endpoint, router_endpoint, spammer, peer_names, prev_group, succ_group):
-    #sys.stdout = open('logging', 'a') 
+    sys.stdout = open('logging', 'a') 
     self.loop = ioloop.ZMQIOLoop.current()
     self.context = zmq.Context()
     # SUB socket for receiving messages from the broker
@@ -96,7 +96,7 @@ class Node:
     self.leaderUpdateTimeout = 0.5
     self.leaderUpdateTime = 0.0
     self.old_peer_leader = self.peer_leader
-    self.old_leader_ref = self.peer_leader
+    self.old_leader_ref = None
     self.forwardMessage = None 
     
     self.electionVotes = 0
@@ -127,7 +127,6 @@ class Node:
         if i != self.name:
             self.outstanding_acks.append((i, msg['id']))
             self.outstanding_acks[:] = [a for a in self.outstanding_acks if int(a[1]) >= int(msg['id'])]
-            
       
       
   def start(self):
@@ -145,7 +144,7 @@ class Node:
   def sendError(self, msg):
     if not self.waiting:
         return
-    #print msg
+    #print "send error:",msg
     if self.sent_id >= msg['id']:
         return
     self.reqsendjson({'type': msg['type'] + 'Response', 'key': msg['key'], 'id': msg['id'], 'error': 'Key not accessible'})    
@@ -193,9 +192,13 @@ class Node:
         # Start leader election
         print "current message: ", msg
         print "outstanding acks: ", self.outstanding_acks
-        self.old_leader_ref = self.peer_leader
-        self.forwardMessage = msg
-        self.leaderElection(msg)
+        self.outstanding_acks[:] = [i for i in self.outstanding_acks if i != (msg['source'],msg['id'])]
+        if self.old_leader_ref == None:
+          self.old_leader_ref = msg['destination'][0]
+          self.forwardMessage = msg.copy()
+          self.leaderElection(msg.copy())
+        pass
+      elif msg['destination'][0] in self.peer_names:
         pass
       else:
         i = (self.succ_group.index(msg['destination'][0]) + 1) % len(self.succ_group)
@@ -211,7 +214,8 @@ class Node:
                                      'node': self.name, 
                                      'destination': msg['destination'],
                                      'acks': self.outstanding_acks}})
-        self.reqsendjson(msg)
+        if self.waiting:
+          self.reqsendjson(msg)
         #print 'next node', msg
         # Try sending to the next node
         pass
@@ -276,15 +280,15 @@ class Node:
 
   def handle(self, msg_frames):
     assert len(msg_frames) == 3
-    if msg_frames[0] != self.name:
-        print msg_frames[0], self.name
+    #if msg_frames[0] != self.name:
+        #print msg_frames[0], self.name
     assert msg_frames[0] == self.name
     # Second field is the empty delimiter
     msg = json.loads(msg_frames[2])
     self.handle_message(msg)
     
   def handle_message(self, msg):
-    print "message received: ", msg
+    #print "message received: ", msg
     #if 'origin' in msg.keys() and msg['origin'] == 'test3':
     #    print msg
     if 'id' not in msg.keys():
@@ -336,20 +340,28 @@ class Node:
     k = msg['key']
     if 'value' in msg.keys():
       v = msg['value'] 
-
+    
+    if 'source' not in msg.keys():
+      msg['source'] = self.name
+    if 'origin' not in msg.keys():
+      msg['origin'] = self.name
+      self.waiting = True
+    #self.sendack(msg)  
+    
     if msg['type'] == 'get':
       # TODO: handle errors, esp. KeyError
       if k in self.keyrange:
         v = self.store[k][1]
       else:
         v = (0, '')
+      
       #self.reqsendjson({'type': 'log', 
                           #'debug': {'event': 'getting', 
                           #          'node': self.name, 
                           #          'key': k, 
                           #          'value': v}})
-      #if 'source' not in msg.keys():
-        #msg['source'] = self.name
+      if 'source' not in msg.keys():
+        msg['source'] = self.name
       if 'origin' not in msg.keys():
         msg['origin'] = self.name
         self.waiting = True
@@ -363,8 +375,8 @@ class Node:
                         #            'node': self.name, 
                         #            'key': k, 
                         #            'value': v}})
-      #if 'source' not in msg.keys():
-        #msg['source'] = self.name
+      if 'source' not in msg.keys():
+        msg['source'] = self.name
       if 'origin' not in msg.keys():
         msg['origin'] = self.name
         self.waiting = True
@@ -387,6 +399,7 @@ class Node:
 
   def sendack(self, msg2):
     msg = msg2.copy()
+    #print "sending ack: ", msg2
     if 'source' in msg.keys() and msg['source'] != self.name:
       msg['prevtype'] = msg['type']
       msg['type'] = 'ack'
@@ -491,6 +504,7 @@ class Node:
     elif not self.leader:
       #print 'sending to recipient', msg['type']
       msg['destination'] = [self.peer_leader]
+      msg['source'] = self.name
       #print msg
       self.reqsendjson(msg) 
     else:
@@ -568,23 +582,23 @@ class Node:
 
 
   def handle_leader_elect(self, msg):
-    if msg['type'] == 'leaderElec':
+    if msg['type'] == 'leaderElec' and msg['origin'] != self.name:
       if self.leaderPromiseID >= msg['leadid'] or (self.leaderPromiseID == msg['leadid'] and self.leaderPromise != msg['origin']):
         self.req.send_json({'type': 'leaderVeto', 'leadid': self.leaderPromiseID, 'id': msg['id'], 'origin': msg['origin'], 'source': self.name, 'destination': [msg['origin']] })
         self.leaderUpdateTime = self.loop.time()
-        print "leaderElec - ", self.name, " received leaderElec message from ", msg['origin'], "current leaderID and promise: ", self.leaderID,self.leaderPromiseID, "- so Veto"
+        print "leaderElec - ", self.name, " received leaderElec from ", msg['origin']," proposalID: ",  msg['leadid'], "current leaderID and promise: ", self.leaderID,self.leaderPromiseID, "- so Veto"
       elif (self.leaderPromiseID < msg['leadid']):
 		    self.leaderPromiseID = msg['leadid']
 		    self.leaderPromise = msg['origin']
 		    self.leaderUpdateTime = self.loop.time()
 		    self.req.send_json({'type': 'leaderVote', 'leadid': self.leaderPromiseID, 'id': msg['id'], 'origin': msg['origin'], 'source': self.name, 'destination': [msg['origin']] })
-		    print "leaderElec - ", self.name, " received leaderElec message from ", msg['origin'], "current leaderID and promise: ", self.leaderID,self.leaderPromiseID, "- so Vote"
+		    print "leaderElec - ", self.name, " received leaderElec from ", msg['origin']," proposalID: ",  msg['leadid'], "current leaderID and promise: ", self.leaderID,self.leaderPromiseID, "- so Vote"
     elif msg['type'] == 'leaderVeto':
-      if msg['leadid'] == self.leaderID:
+      if (msg['leadid'] == self.leaderID):
         self.electionVetos = self.electionVetos + 1
         if self.vetoLeaderID < msg['leadid']:
           self.vetoLeaderID = msg['leadid']
-          print "leaderVeto - ",  self.name, " received Veto message from ", msg['origin']
+        print "leaderVeto - ",  self.name, " received Veto message from ", msg['origin']
     elif msg['type'] == 'leaderVote':
       if msg['leadid'] == self.leaderID:
         self.electionVotes = self.electionVotes + 1
@@ -596,40 +610,51 @@ class Node:
 				self.old_peer_leader = self.peer_leader
 				self.peer_leader = msg['source']
 				self.leader = False
+				self.old_leader_ref = None
 				self.leaderUpdateTime = self.loop.time()
+				#for i, (k, v) in iter(self.outstanding_acks):
+				#  if k == msg['source']:
+				#    self.outstanding_acks.remove(i)
+				self.outstanding_acks[:] = [ (i,j) for (i,j) in self.outstanding_acks if i != msg['source']]
+
 				if (self.forwardMessage != None):
+				  self.forwardMessage['destination'] = [self.peer_leader]
 				  self.handle_message(self.forwardMessage)
 				  self.forwardMessage = None
 				print "NEW LEADER IS", self.peer_leader, "SAYS",  self.name  
   
   def leaderElection(self,msg):
-    #if ( self.loop.time() - self.leaderUpdateTime ) > self.leaderUpdateTimeout:
-      print "New Leader election for: ", self.name
-      self.leaderID = self.leaderID + 1
-      self.electionVotes = 0
-      self.electionVetos = 0
-      self.vetoLeaderID = 0
-      
-      #msg['id'] = msg['id'] + 1
-      #print "Sending leader election from ", self.name,
-      self.req.send_json({'type': 'leaderElec', 'leadid': self.leaderID, 'id':msg['id'] , 'origin': self.name, 'source': self.name, 'destination': self.peer_names})
-      self.loop.add_timeout(self.loop.time() + self.timeoutTime, lambda: self.tallyElection(msg) ) 
-    #elif (self.old_peer_leader != self.old_leader_ref):
-      #self.loop.add_timeout(self.loop.time() + self.timeoutTime, lambda: self.leaderElection(msg) ) 
+    if (self.peer_leader == self.old_leader_ref):
+      if ( self.loop.time() - self.leaderUpdateTime ) > self.leaderUpdateTimeout:
+        print "New Leader election for: ", self.name
+        self.leaderID = self.leaderID + 1
+        self.electionVotes = 0
+        self.electionVetos = 0
+        self.vetoLeaderID = 0
+        
+        #msg['id'] = msg['id'] + 1
+        #print "Sending leader election from ", self.name,
+        self.req.send_json({'type': 'leaderElec', 'leadid': self.leaderID, 'id':msg['id'] , 'origin': self.name, 'source': self.name, 'destination': self.peer_names})
+        self.loop.add_timeout(self.loop.time() + self.timeoutTime, lambda: self.tallyElection(msg) ) 
+      else:
+        self.loop.add_timeout(self.loop.time() + self.timeoutTime, lambda: self.leaderElection(msg) ) 
 
   def tallyElection(self,msg):
-    if self.electionVotes > self.electionVetos:
-      self.peer_leader = self.name
-      self.leader = True
-      #msg['id'] = msg['id'] + 10
-      self.req.send_json({'type': 'leaderAccept', 'leadid': self.leaderID, 'id':msg['id'] , 'origin': self.name, 'source': self.name, 'destination': self.peer_names})
-      if (self.forwardMessage != None):
-				  self.handle_message(self.forwardMessage)
-				  self.forwardMessage = None
-    else:
-      self.leaderID = self.vetoLeaderID
-      print "Election Results for ", self.name, "- Votes: ", self.electionVotes,  "- Vetos: ", self.electionVetos,
-      self.leaderElection(msg)
+    if (self.peer_leader == self.old_leader_ref):
+      if self.electionVotes > self.electionVetos:
+        self.peer_leader = self.name
+        self.old_leader_ref = None
+        self.leader = True
+        #msg['id'] = msg['id'] + 10
+        self.req.send_json({'type': 'leaderAccept', 'leadid': self.leaderID, 'id':msg['id'] , 'origin': self.name, 'source': self.name, 'destination': self.peer_names})
+        if (self.forwardMessage != None):
+          self.forwardMessage['destination'] = [self.peer_leader]
+          self.handle_message(self.forwardMessage)
+          self.forwardMessage = None
+      else:
+        self.leaderID = self.vetoLeaderID
+        print "Election Results for ", self.name, "- Votes: ", self.electionVotes,  "- Vetos: ", self.electionVetos,
+        self.leaderElection(msg)
 
 
 if __name__ == '__main__':
