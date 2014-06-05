@@ -60,7 +60,7 @@ class Node:
         self.leader = True
     else:
         self.leader = True
-    if len(self.succ_group) > 1 and len(self.prev_group) > 1:
+    if len(self.succ_group) > 1:
         self.prev_leader = self.prev_group[0]
         self.succ_leader = self.succ_group[0]
         self.forward_nodes = self.succ_group#[self.succ_leader]
