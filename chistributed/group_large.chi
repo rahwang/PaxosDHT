@@ -15,13 +15,12 @@ start test14 --succ-group testA,test2,test3,test4,test5 --prev-group test6,test7
 start test15 --succ-group testA,test2,test3,test4,test5 --prev-group test6,test7,test8,test9,test10 --peer-names test11,test12,test13,test14,test15
 set test3 3 3val1
 set test6 6 6val1
-drop 1 test6
 get test2 6
 set test14 14 14val1 
 get testA 14
-set test4 3 3val2
-get test15 3
-split partition1 test2,test3,test4,test7,test8,test12,test13
+stop test6
+get test3 6
+split partition1 test2,test3,test4,test7,test8,test9,test12,test13
 get test3 3
 get test3 6
 get test1 3

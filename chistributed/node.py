@@ -11,7 +11,7 @@ ioloop.install()
 
 class Node:
   def __init__(self, node_name, pub_endpoint, router_endpoint, spammer, peer_names, prev_group, succ_group):
-   # sys.stdout = open('logging', 'a') 
+    #sys.stdout = open('logging', 'a') 
     self.loop = ioloop.ZMQIOLoop.current()
     self.context = zmq.Context()
     # SUB socket for receiving messages from the broker
@@ -53,6 +53,7 @@ class Node:
 
     self.registered = False
     self.waiting = False
+    self.seen_id = 0
 
     #self.group = group
     if self.peer_names[0] == self.name:
@@ -62,7 +63,7 @@ class Node:
     if len(self.succ_group) > 1 and len(self.prev_group) > 1:
         self.prev_leader = self.prev_group[0]
         self.succ_leader = self.succ_group[0]
-        self.forward_nodes = [self.succ_leader]
+        self.forward_nodes = self.succ_group#[self.succ_leader]
         self.peer_leader = self.peer_names[0]
     else:
         self.forward_nodes = self.peer_names[:]
@@ -85,16 +86,32 @@ class Node:
     self.nopromised = []
     self.accepted = []
     self.rejected = []
+    self.group_tried = [False]*len(self.succ_group)
 
   def reqsendjson(self,msg):
     # Send msg
+    #msg['source'] = self.name
+    #if self.seen_id > int(msg['id']):
+    try:
+        if self.seen_id > int(msg['id']):
+            return
+    except KeyError:
+         self.req.send_json({'type': 'log', 
+                           'debug': {'event': 'error', 
+                                     'node': self.name, 
+                                     'msg': msg}})
     self.req.send_json(msg)
+    #if self.name == 'test3' and msg['type'] == 'get':
+        #print msg
 
     # The following message types need acks
     if msg['type'] in ['get', 'set', 'getReply', 'setReply', 'nodeset']:
       self.loop.add_timeout(time.time() + 0.5, lambda: self.collectAcks(msg))
       for i in msg['destination']:
-        self.outstanding_acks.append((i, msg['id']))
+        if i != self.name:
+            self.outstanding_acks.append((i, msg['id']))
+            self.outstanding_acks[:] = [a for a in self.outstanding_acks if int(a[1]) >= int(msg['id'])]
+            
       
       
   def start(self):
@@ -133,29 +150,48 @@ class Node:
       #  self.reqsendjson({'type': msg['type'] + 'Response', 'key': msg['key'], 'id': msg['id'], 'error': 'Key not accessible'})    
 
   def collectAcks(self, msg):
-    if self.name == 'test2':
-      print 'outstanding acks', self.outstanding_acks, msg['type']
+    #if self.name == 'test2':
+      #print 'outstanding acks', self.outstanding_acks, msg['type']
+    try:
+        if self.seen_id > int(msg['id']):
+            return
+    except KeyError:
+         self.req.send_json({'type': 'log', 
+                           'debug': {'event': 'error', 
+                                     'node': self.name, 
+                                     'msg': msg}})
+        
     if msg['type'] == 'nodeset':
       for n in self.peer_names:
         if ((n,msg['id']) in self.outstanding_acks) and (n not in self.dead):
           self.dead.append(n)
-      print 'nodeset replying',self.name
+      #print 'nodeset replying',self.name
       msg['type'] = 'set'
       self.reply(msg)
       return
     if ((msg['destination'][0],msg['id']) not in self.outstanding_acks):
         return 
     elif msg['type'] in ['get', 'set']:
-      print "OUTSTANDING ACK", msg['destination']
+      #print "OUTSTANDING ACK", msg['destination']
       if msg['destination'] == [self.peer_leader]:
         # Start leader election
         pass
       else:
         i = (self.succ_group.index(msg['destination'][0]) + 1) % len(self.succ_group)
-        self.outstanding_acks.remove((msg['destination'][0],msg['id']))
+        self.outstanding_acks[:] = [x for x in self.outstanding_acks if x != (msg['destination'][0],msg['id']) and int(x[1]) >= self.seen_id]
+        self.group_tried[self.succ_group.index(msg['destination'][0])] = True
+        #if self.succ_group[i]:
+        #    self.sendError(msg)
         msg['destination'] = [self.succ_group[i]]
+        msg['source'] = self.name
+        if msg['type'] == 'get' and self.name == 'test33':
+         self.req.send_json({'type': 'log', 
+                           'debug': {'event': 'getting', 
+                                     'node': self.name, 
+                                     'destination': msg['destination'],
+                                     'acks': self.outstanding_acks}})
         self.reqsendjson(msg)
-        print 'next node', msg
+        #print 'next node', msg
         # Try sending to the next node
         pass
     elif msg['type'] in ['getReply', 'setReply']:
@@ -177,6 +213,7 @@ class Node:
     # TODO check failed
     k = msg['key']
     self.promised = list(set(self.promised))
+    self.nopromised = list(set(self.nopromised))
     #print 'promises', self.name, self.promised
     #if self.majority(self.promised):# and self.state == 'WAIT_PROMISE':
     if len(self.promised) > len(self.nopromised):
@@ -218,29 +255,50 @@ class Node:
 
   def handle(self, msg_frames):
     assert len(msg_frames) == 3
-    #if msg_frames[0] != self.name:
-        #print msg_frames[0], self.name
+    if msg_frames[0] != self.name:
+        print msg_frames[0], self.name
     assert msg_frames[0] == self.name
     # Second field is the empty delimiter
     msg = json.loads(msg_frames[2])
-
-    if msg['type'] != 'hello':
-      print msg['type'], self.name, msg['id'],
-      if 'source' in msg.keys():
-        print msg['source']
+    #if 'origin' in msg.keys() and msg['origin'] == 'test3':
+    #    print msg
+    if 'id' not in msg.keys():
+        msg['id'] = 0
+    if self.seen_id > int(msg['id']):
+        return
+    self.seen_id = max(self.seen_id, int(msg['id']))
+    #if msg['type'] != 'hello':
+      #print msg['type'], self.name, msg['id'],
+      #if 'source' in msg.keys():
+        #print msg['source']
 
     if msg['type'] in ['propose', 'promise', 'nopromise', 'accepted', 'rejected', 'accept', 'prepare', 'consensus']:
       self.handle_paxos(msg)
       return
     elif msg['type'] == 'ack':
       # TODO SOME HANDLING
+      #self.reqsendjson({'type': 'log', 
+      #                  'debug': {'event': 'ack_receive', 
+      #                            'node': self.name, 
+      #                            'destination': msg['destination'],
+      #                            'acks': self.outstanding_acks,
+      #                            'check': (msg['source'],msg['id'])}})
       if (msg['source'],msg['id']) in self.outstanding_acks:
-        self.outstanding_acks.remove((msg['source'],msg['id']))
+        orig = self.outstanding_acks[:]
+        self.outstanding_acks[:] = [i for i in self.outstanding_acks if i != (msg['source'],msg['id'])]
+        #self.reqsendjson({'type': 'log', 
+        #                  'debug': {'event': 'ack_remove', 
+        #                            'node': self.name, 
+        #                            'destination': msg['destination'],
+        #                            'acks': orig,
+        #                            'acks_after': self.outstanding_acks,
+        #                            'check': (msg['source'], msg['id']),
+        #                            'id': self.sent_id}})
       return
     elif msg['type'] == 'hello':
       # should be the very first message we see
       if not self.registered:
-        self.reqsendjson({'type': 'hello', 'source': self.name})
+        self.reqsendjson({'type': 'hello', 'id': 0, 'source': self.name})
         self.registered = True
       return
    
@@ -283,7 +341,7 @@ class Node:
     elif msg['type'] == 'nodeset':
       if k in self.keyrange:
         self.store[k] = (msg['id'], v)
-        print 'NODESET', self.store[k], self.name
+        #print 'NODESET', self.store[k], self.name
     elif msg['type'] == 'getReply':
       self.reply(msg)
     elif msg['type'] == 'setReply':
@@ -296,10 +354,10 @@ class Node:
     self.sendack(msg)
 
   def sendack(self, msg):
-    if 'source' in msg.keys():
+    if 'source' in msg.keys() and msg['source'] != self.name:
       msg['prevtype'] = msg['type']
       msg['type'] = 'ack'
-      msg['destination'] = msg['source']
+      msg['destination'] = [msg['source']]
       msg['source'] = self.name
       self.reqsendjson(msg)
 
@@ -312,6 +370,7 @@ class Node:
       #print 'received propose', self.name
       if ((self.state == 'CONSENSUS') and (msg['id'] != self.store[k][0])) or (self.state == 'WAIT_PROPOSE'):
         self.state = 'WAIT_PROMISE'
+        self.value = self.store[k]
         self.reqsendjson({'type': 'prepare', 
                             'key': k,
                             'value': self.store[k],
@@ -333,8 +392,8 @@ class Node:
       if self.state == 'WAIT_ACCEPTED':
         self.rejected.append(msg['source'])
     elif msg['type'] == 'prepare':
-      #print 'received prepare', self.name, 'from', msg['source']
-      if msg['value'][0] > self.value[0]:
+      #print 'received prepare', self.name, 'from', msg['source'], msg['value'], self.value
+      if msg['value'][0] >= self.value[0]:
         self.store[msg['key']] = msg['value']
         self.promised = []
         self.accepted = []
@@ -387,8 +446,13 @@ class Node:
   # Forwards msg to correct nodes. Returns True is msg forwarded, False if no forwarding needed
   def forward(self, msg):
     #print 'forwarding', msg['type'], 'leader', self.leader, 'key', msg['key'], self.keyrange
+    #if msg['type'] == 'get':
+        #print 'forwarding', self.leader, self.name, self.forward_nodes
     if msg['key'] not in self.keyrange:
+      self.group_tried = [False]*len(self.succ_group)
+      #print msg['key'], self.keyrange
       msg['destination'] = self.forward_nodes #[self.succ_leader, self.prev_leader] #self.peer_names
+      msg['source'] = self.name
       #print msg
       self.reqsendjson(msg) 
     elif not self.leader:
@@ -410,11 +474,12 @@ class Node:
         msg['destination'] = self.forward_nodes
       msg['type'] = msg['type'][:3] + 'Reply'
       msg['source'] = self.name
-      print msg
+      #if msg['origin'] == 'test3':
+      #   print msg
       self.reqsendjson(msg)
-      print 'sent'
+      #print 'sent'
     else:
-      print 'id', msg['id'], self.sent_id
+      #print 'id', msg['id'], self.sent_id
       if self.sent_id >= int(msg['id']):
         return
       msg['type'] = msg['type'][:3] + 'Response'
@@ -422,8 +487,8 @@ class Node:
       #print msg
       self.reqsendjson(msg)
       self.waiting = False
-      if msg['type'] == 'getResponse':
-        print self.name, 'accepted:', self.accepted, 'rejected:', self.rejected, 'promised:', self.promised, self.value
+      #if msg['type'] == 'getResponse':
+        #print self.name, 'accepted:', self.accepted, 'rejected:', self.rejected, 'promised:', self.promised, self.value
       
   def consistentSet(self, k, v, msg):
     #print msg
@@ -447,20 +512,19 @@ class Node:
                         'id': msg['id']})    
     #self.loop.add_timeout(time.time() + .5, lambda: self.collectPrepare(msg))
 
-    self.loop.add_timeout(time.time() + 6, lambda: self.checkConsensus(msg))
+    self.loop.add_timeout(time.time() + 4, lambda: self.checkConsensus(msg))
 
     #v = self.store[k][1]
     #msg['value'] = v
     #self.reply(msg)
 
   def checkConsensus(self, msg):
-    #print 'consensus', self.consensus, msg['origin']
-    print self.name, 'accepted:', self.accepted, 'rejected:', self.rejected, 'promised:', self.promised, self.value
     if self.consensus:
-      print 'self.value', self.value
+      #print 'self.value', self.value
       self.store[msg['key']] = self.value
       msg['value'] = self.value[1]
-      print 'consensus message', msg
+      msg['type'] = 'get'
+      #print 'consensus message', msg
       self.reply(msg)
     else:
       
