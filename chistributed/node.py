@@ -83,6 +83,7 @@ class Node:
     self.consensus = False
     self.prepared = []
     self.promised = []
+    self.nopromised = []
     self.accepted = []
     self.rejected = []
 
@@ -148,6 +149,9 @@ class Node:
         # Start leader election
         pass
       else:
+        i = (self.succ_group.index(msg['destination'][0]) + 1) % len(self.succ_group)
+        msg['destination'] = self.succ_group[i]
+        self.reqsendjson(msg)
         # Try sending to the next node
         pass
     elif msg['type'] in ['getReply', 'setReply']:
@@ -170,7 +174,8 @@ class Node:
     k = msg['key']
     self.promised = list(set(self.promised))
     #print 'promises', self.name, self.promised
-    if self.majority(self.promised):# and self.state == 'WAIT_PROMISE':
+    #if self.majority(self.promised):# and self.state == 'WAIT_PROMISE':
+    if len(self.promised) > len(self.nopromised):
       self.value = self.store[k]#299msg['value']
       #print 'promise majority'
       self.state = "WAIT_ACCEPTED"
@@ -186,7 +191,8 @@ class Node:
     # TODO check failed
     k = msg['key']
     self.accepted = list(set(self.accepted))
-    if self.majority(self.accepted):
+    #if self.majority(self.accepted):
+    if len(self.accepted) > len(self.rejected):
       #print 'majority'
       self.state = "CONSENSUS"
       self.reqsendjson({'type': 'consensus', 
@@ -195,7 +201,8 @@ class Node:
                           'source': self.name,
                           'destination': self.peer_names,
                           'id': msg['id']})
-    elif self.majority(self.rejected):
+    #elif self.majority(self.rejected):
+    else:
       self.state = "WAIT_PROMISE"
       self.reqsendjson({'type': 'prepare', 
                           'key': k,
@@ -309,6 +316,9 @@ class Node:
     elif msg['type'] == 'promise':
       if self.state == 'WAIT_PROMISE':
         self.promised.append(msg['source'])
+    elif msg['type'] == 'nopromise':
+      if self.state == 'WAIT_PROMISE':
+        self.nopromised.append(msg['source'])
     elif msg['type'] == 'accepted':
       if self.state == 'WAIT_ACCEPTED':
         self.accepted.append(msg['source'])
@@ -330,7 +340,13 @@ class Node:
                             'destination': [msg['source']],
                             'id': msg['id']})
         #print 'promise sent', self.name
-        self.loop.add_timeout(time.time() + 1.5, lambda: self.collectPromise(msg))
+        #self.loop.add_timeout(time.time() + 1.5, lambda: self.collectPromise(msg))
+      else:
+        self.reqsendjson({'type': 'nopromise',
+                            'source': self.name,
+                            'destination': [msg['source']],
+                            'id': msg['id'],
+                            'key': k})
     elif msg['type'] == 'accept':
       #print 'accept message', self.value, msg['value'], self.name
       if self.value == msg['value']:
