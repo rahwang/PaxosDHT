@@ -21,4 +21,3 @@ stop test14
 get testA 14
 set test4 3 3val2
 get test15 3
-get test14 3
