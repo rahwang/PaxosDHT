@@ -23,8 +23,10 @@ get test7 14
 get test6 14
 get testA 6
 get test3 6
-set testA 3 3val2
-set test3 3 3val3
+set test3 3 3val2
+set testA 3 3val3
+get test11 3
+get test12 3
 join partition1
 get test3 3
 split partition2 testA
