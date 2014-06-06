@@ -1,0 +1,24 @@
+start test2 --peer-names testA,test2,test3 --succ-group test4,test5,test6
+start test3 --peer-names testA,test2,test3 --succ-group test6,test7,test8,test9,test10
+start test4 --peer-names testA,test2,test3,test4,test5 --succ-group test6,test7,test8,test9,test10
+start test5 --peer-names testA,test2,test3,test4,test5 --succ-group test6,test7,test8,test9,test10
+start test6 --peer-names test6,test7,test8,test9,test10 --succ-group test11,test12,test13,test14,test15
+start test7 --peer-names test6,test7,test8,test9,test10 --succ-group test11,test12,test13,test14,test15
+start test8 --peer-names test6,test7,test8,test9,test10 --succ-group test11,test12,test13,test14,test15
+start test10 --peer-names test6,test7,test8,test9,test10 --succ-group test11,test12,test13,test14,test15
+start testA --peer-names testA,test2,test3,test4,test5 --succ-group test6,test7,test8,test9,test10
+start test9 --peer-names test6,test7,test8,test9,test10 --succ-group test11,test12,test13,test14,test15
+start test11 --succ-group testA,test2,test3,test4,test5 --peer-names test11,test12,test13,test14,test15
+start test12 --succ-group testA,test2,test3,test4,test5 --peer-names test11,test12,test13,test14,test15
+start test13 --succ-group testA,test2,test3,test4,test5 --peer-names test11,test12,test13,test14,test15
+start test14 --succ-group testA,test2,test3,test4,test5 --peer-names test11,test12,test13,test14,test15
+start test15 --succ-group testA,test2,test3,test4,test5 --peer-names test11,test12,test13,test14,test15
+set 2 2val1
+set 3 3val1
+set 6 6val1
+set 14 14val1 
+get 14
+set 3 3val2
+get 3
+set 2 2val2
+get 2
