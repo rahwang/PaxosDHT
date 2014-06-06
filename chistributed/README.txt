@@ -1,71 +1,33 @@
+Files:
 
-chistributed: A Distributed Systems Simulator
+node_elect.py           The code for our node process
 
+get_set.chi             A script which tests get and set commands,
+                        with replication but no failures
 
-SOFTWARE PREREQUISITES
-----------------------
+stop.chi                A script which tests fail-stop failures,
+                        killing about half of the nodes and 
+                        then testing get and set on the remaining
+                        nodes, in addition to new leader elections.
+                        The function always returns, returning an
+                        error if the key range is not accessible
 
-- Python 2.7.x
-- ZeroMQ 4.0.4 (http://zeromq.org/area:download)
-- pyzmq (https://pypi.python.org/pypi/pyzmq)
-- tornado 3.2.1 (https://pypi.python.org/pypi/tornado)
+partition.chi           A script which tests partition tolerance,
+                        creating a partition of about half the nodes,
+                        showing that they remain internally consistent,
+                        and agree to the latest values from the broker
+                        when they join. Once again, an error is returned
+                        if the key range is not accessible from a 
+                        partition.
 
-Note: we recommend you install ZeroMQ from source (since up-to-date binary packages
-are not available for most systems). It has no dependencies, so it should be
-straightforward to install just by downloading the ZeroMQ tarball, and then running:
+Usage (you probably already know this):
 
-   ./configure
-   make
-   make install
-
-We also recommend you install pyzmq and tornado usign "pip":
-
-    pip install pyzmq
-    pip install tornado
-
-If the "pip" command is not available in your system, please see
-http://pip.readthedocs.org/en/latest/installing.html
-
-Please note that installing pyzmq will compile native extensions using the current
-version of ZeroMQ installed on your system. Make sure you install pyzmq *after*
-you've installed the 4.0.4 version of ZeroMQ (in case your system has an older
-version of ZeroMQ installed).
+/* Basic Replication */
+python broker.py -e "python node_elect.py" -s get_set.chi
+/* Fail-stop tolerance */
+python broker.py -e "python node_elect.py" -s stop.chi
+/* Partition tolerance */
+python broker.py -e "python node_elect.py" -s partition.chi
 
 
-RUNNING THE BROKER
-------------------
-
-The broker takes two parameters:
-
-  -e / --node-executable: The executable that will be run as a node.
-                          If using a scripting language, then specify
-                          the full invocation necessary to run your
-                          code (e.g., "python examples/node.py")
-
-  -s / --script: chidistributed script to run
-
-To run the simple example:
-
-python broker.py -e "python examples/node.py" -s simple.chi
-
-This sets the main node executable to running "python examples/node.py" and 
-then runs the script contained in "simple.chi"
-
-
-IMPLEMENTING A NODE
--------------------
-
-Please refer to the final project documentation for details on how to
-implement a chistributed node. However, please note that you must provide
-the "--peer-names" parameters *explicitly* in the chistributed script;
-it will not be generated automatically by the broker (this actually gives
-you more freedom in deciding what information to reveal about peers
-when starting a node, as well as allowing you to start additional nodes
-later on).
-
-
-AUTHORS
--------
-Michael Victor Zink
-Borja Sotomayor
 
