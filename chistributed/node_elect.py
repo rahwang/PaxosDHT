@@ -122,7 +122,7 @@ class Node:
 
     # The following message types need acks
     if msg['type'] in ['get', 'set', 'getReply', 'setReply', 'nodeset']:
-      self.loop.add_timeout(time.time() + 0.5, lambda: self.collectAcks(msg))
+      self.loop.add_timeout(time.time() + 0.5, lambda: self.collectAcks(msg.copy()))
       for i in msg['destination']:
         if i != self.name:
             self.outstanding_acks.append((i, msg['id']))
@@ -160,7 +160,7 @@ class Node:
   # In case of timeout, send an error response for get
   def collectReply(self, msg):
     if msg['origin'] == self.name:
-      self.loop.add_timeout(time.time() + 10, lambda: self.sendError(msg))
+      self.loop.add_timeout(time.time() + 10, lambda: self.sendError(msg.copy()))
       #if not self.receive():
       #  self.reqsendjson({'type': msg['type'] + 'Response', 'key': msg['key'], 'id': msg['id'], 'error': 'Key not accessible'})    
 
@@ -182,7 +182,7 @@ class Node:
           self.dead.append(n)
       #print 'nodeset replying',self.name
       msg['type'] = 'set'
-      self.reply(msg)
+      self.reply(msg.copy())
       return
     if ((msg['destination'][0],msg['id']) not in self.outstanding_acks):
         return 
@@ -251,7 +251,7 @@ class Node:
                           'source': self.name,
                           'destination': self.peer_names,
                           'id': msg['id']})
-      self.loop.add_timeout(time.time() + .5, lambda: self.collectAccepted(msg))
+      self.loop.add_timeout(time.time() + .5, lambda: self.collectAccepted(msg.copy()))
       
   def collectAccepted(self, msg):
     # TODO check failed
@@ -276,7 +276,7 @@ class Node:
                           'source': self.name,
                           'destination': self.peer_names,
                           'id': msg['id']})
-      self.loop.add_timeout(time.time() + .5, lambda: self.collectPromise(msg)) 
+      self.loop.add_timeout(time.time() + .5, lambda: self.collectPromise(msg.copy())) 
 
   def handle(self, msg_frames):
     assert len(msg_frames) == 3
@@ -285,7 +285,7 @@ class Node:
     assert msg_frames[0] == self.name
     # Second field is the empty delimiter
     msg = json.loads(msg_frames[2])
-    self.handle_message(msg)
+    self.handle_message(msg.copy())
     
   def handle_message(self, msg):
     #print "message received: ", msg
@@ -302,10 +302,10 @@ class Node:
         #print msg['source']
 
     if msg['type'] in ['propose', 'promise', 'nopromise', 'accepted', 'rejected', 'accept', 'prepare', 'consensus']:
-      self.handle_paxos(msg)
+      self.handle_paxos(msg.copy())
       return
     elif msg['type'] in ['leaderElec', 'leaderVeto', 'leaderVote','leaderAccept']:
-      self.handle_leader_elect(msg)
+      self.handle_leader_elect(msg.copy())
       return
     elif msg['type'] == 'ack':
       # TODO SOME HANDLING
@@ -365,9 +365,9 @@ class Node:
       if 'origin' not in msg.keys():
         msg['origin'] = self.name
         self.waiting = True
-      if not self.forward(msg):
+      if not self.forward(msg.copy()):
         self.consistentGet(k, msg)
-      self.collectReply(msg)
+      self.collectReply(msg.copy())
       #print self.name, 'collectReplied'
     elif msg['type'] == 'set':
       #self.reqsendjson({'type': 'log', 
@@ -380,22 +380,22 @@ class Node:
       if 'origin' not in msg.keys():
         msg['origin'] = self.name
         self.waiting = True
-      if not self.forward(msg):
+      if not self.forward(msg.copy()):
         self.consistentSet(k, v, msg)
     elif msg['type'] == 'nodeset':
       if k in self.keyrange:
         self.store[k] = (msg['id'], v)
         #print 'NODESET', self.store[k], self.name
     elif msg['type'] == 'getReply':
-      self.reply(msg)
+      self.reply(msg.copy())
     elif msg['type'] == 'setReply':
-      self.reply(msg)
+      self.reply(msg.copy())
     else:
       self.reqsendjson({'type': 'log', 
                           'debug': {'event': 'unknown', 
                                     'prev_type': msg['type'],
                                     'node': self.name}})
-    self.sendack(msg)
+    self.sendack(msg.copy())
 
   def sendack(self, msg2):
     msg = msg2.copy()
@@ -424,7 +424,7 @@ class Node:
                             'destination': self.peer_names,
                             'id': msg['id']})
         #print 'sending prepare', self.name, 'to', self.peer_names
-        self.loop.add_timeout(time.time() + 1.5, lambda: self.collectPromise(msg))
+        self.loop.add_timeout(time.time() + 1.5, lambda: self.collectPromise(msg.copy()))
     elif msg['type'] == 'promise':
       if self.state == 'WAIT_PROMISE':
         self.promised.append(msg['source'])
@@ -559,7 +559,7 @@ class Node:
                         'id': msg['id']})    
     #self.loop.add_timeout(time.time() + .5, lambda: self.collectPrepare(msg))
 
-    self.loop.add_timeout(time.time() + 4, lambda: self.checkConsensus(msg))
+    self.loop.add_timeout(time.time() + 4, lambda: self.checkConsensus(msg.copy()))
 
     #v = self.store[k][1]
     #msg['value'] = v
@@ -572,7 +572,7 @@ class Node:
       msg['value'] = self.value[1]
       msg['type'] = 'get'
       #print 'consensus message', msg
-      self.reply(msg)
+      self.reply(msg.copy())
     else:
       
       #new_msg = 
@@ -635,9 +635,9 @@ class Node:
         #msg['id'] = msg['id'] + 1
         #print "Sending leader election from ", self.name,
         self.req.send_json({'type': 'leaderElec', 'leadid': self.leaderID, 'id':msg['id'] , 'origin': self.name, 'source': self.name, 'destination': self.peer_names})
-        self.loop.add_timeout(self.loop.time() + self.timeoutTime, lambda: self.tallyElection(msg) ) 
+        self.loop.add_timeout(self.loop.time() + self.timeoutTime, lambda: self.tallyElection(msg.copy()) ) 
       else:
-        self.loop.add_timeout(self.loop.time() + self.timeoutTime, lambda: self.leaderElection(msg) ) 
+        self.loop.add_timeout(self.loop.time() + self.timeoutTime, lambda: self.leaderElection(msg.copy()) ) 
 
   def tallyElection(self,msg):
     if (self.peer_leader == self.old_leader_ref):
@@ -654,7 +654,7 @@ class Node:
       else:
         self.leaderID = self.vetoLeaderID
         print "Election Results for ", self.name, "- Votes: ", self.electionVotes,  "- Vetos: ", self.electionVetos,
-        self.leaderElection(msg)
+        self.leaderElection(msg.copy())
 
 
 if __name__ == '__main__':
